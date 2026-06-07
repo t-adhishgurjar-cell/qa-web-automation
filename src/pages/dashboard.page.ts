@@ -2,13 +2,10 @@ import { Page, expect } from '@playwright/test';
 import { BasePage } from './base.page';
 
 export class DashboardPage extends BasePage {
-  // ─── Locators ─────────────────────────────────────────────────────────────
-  private readonly welcomeHeading  = this.page.getByRole('heading', { level: 1 });
-  private readonly navMenu         = this.page.locator('ul.oxd-main-menu');
-  private readonly userAvatar      = this.page.locator('.oxd-userdropdown-tab');
-  private readonly logoutButton    = this.page.getByRole('link', { name: 'Logout' });
-  private readonly notificationBell = this.page.locator('.oxd-topbar-header-notification');
-  private readonly sidebarToggle   = this.page.locator('.oxd-icon-button.oxd-main-menu-button');
+  // ─── Locators (recorded — webqa.fleetforc.com) ────────────────────────────
+  private readonly sidebarMenu    = this.page.locator('#sidebarMenu');
+  private readonly userAvatar     = this.page.locator('.header-avatar-wrapper.dropdown-toggle').first();
+  private readonly logoutLink     = this.page.getByRole('link', { name: /Logout/i });
 
   constructor(page: Page) {
     super(page);
@@ -16,37 +13,48 @@ export class DashboardPage extends BasePage {
 
   // ─── Actions ──────────────────────────────────────────────────────────────
   async navigate(): Promise<void> {
-    await this.navigateTo('/web/index.php/dashboard/index');
+    await this.navigateTo('/');
+  }
+
+  async openUserMenu(): Promise<void> {
+    this.logger.info('Opening user menu');
+    try {
+      await this.userAvatar.waitFor({ state: 'visible', timeout: 15_000 });
+      await this.userAvatar.scrollIntoViewIfNeeded();
+      await this.clickElement(this.userAvatar, { force: true });
+      return;
+    } catch (error) {
+      this.logger.warn('User avatar menu not available, falling back to sidebar user menu');
+    }
+
+    const userMenu = this.sidebarMenu.getByRole('button').filter({ hasText: /Admin/i }).last();
+    await this.clickElement(userMenu);
   }
 
   async logout(): Promise<void> {
     this.logger.info('Logging out');
-    await this.clickElement(this.userAvatar);
-    await this.clickElement(this.logoutButton);
+    await this.openUserMenu();
+    await this.clickElement(this.logoutLink);
+    await this.waitForPageLoad();
   }
 
-  async openNotifications(): Promise<void> {
-    await this.clickElement(this.notificationBell);
+  async expandSidebarSection(sectionName: string): Promise<void> {
+    this.logger.info(`Expanding sidebar section: ${sectionName}`);
+    await this.sidebarMenu.getByRole('button', { name: new RegExp(sectionName, 'i') }).click();
   }
 
-  async toggleSidebar(): Promise<void> {
-    await this.clickElement(this.sidebarToggle);
-  }
-
-  async navigateToSection(sectionName: string): Promise<void> {
-    this.logger.info(`Navigating to section: ${sectionName}`);
-    await this.navMenu.getByRole('link', { name: sectionName }).click();
+  async navigateToSection(linkName: string): Promise<void> {
+    this.logger.info(`Navigating to: ${linkName}`);
+    await this.sidebarMenu.getByRole('link', { name: linkName }).click();
   }
 
   // ─── Assertions ───────────────────────────────────────────────────────────
   async assertDashboardLoaded(): Promise<void> {
-    // Soft assertions — all three are checked even if one fails
-    await expect.soft(this.page).toHaveURL(/.*dashboard.*/);
-    await expect.soft(this.navMenu).toBeVisible();
-    await expect.soft(this.userAvatar).toBeVisible();
+    await expect.soft(this.page).not.toHaveURL(/Login/i);
+    await expect.soft(this.sidebarMenu).toBeVisible();
   }
 
-  async assertWelcomeMessage(username: string): Promise<void> {
-    await this.assertElementText(this.welcomeHeading, `Welcome, ${username}`);
+  async assertSidebarSectionVisible(sectionName: string): Promise<void> {
+    await expect(this.sidebarMenu.getByRole('button', { name: new RegExp(sectionName, 'i') })).toBeVisible();
   }
 }

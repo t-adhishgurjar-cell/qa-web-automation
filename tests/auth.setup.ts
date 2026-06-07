@@ -1,20 +1,18 @@
-import { test as setup, expect } from '@playwright/test';
-import path from 'path';
+import { test as setup } from '@playwright/test';
+import * as path from 'path';
+import * as fs from 'fs';
+import { FleetPlusTestData } from '../src/helpers/fleetplus-test-data.helper';
+import { LoginPage } from '../src/pages/login.page';
 
 const authFile = path.join(__dirname, '../config/.auth/user.json');
 
 setup('authenticate', async ({ page }) => {
-  // Perform authentication steps
-  await page.goto('/web/index.php/auth/login');
+  const { mobile, password } = FleetPlusTestData.getPrimaryCredential();
+  const loginPage = new LoginPage(page);
 
-  await page.getByPlaceholder('Username').fill(process.env.TEST_USERNAME ?? '');
-  await page.getByPlaceholder('Password').fill(process.env.TEST_PASSWORD ?? '');
-  await page.getByRole('button', { name: 'Login' }).click({ force: true });
+  await loginPage.navigate();
+  await loginPage.login(mobile, password);
 
-  // Wait for successful login
-  await page.waitForURL(/dashboard/);
-  await expect(page.getByRole('navigation', { name: 'Sidepanel' })).toBeVisible();
-
-  // Save the authentication state
+  fs.mkdirSync(path.dirname(authFile), { recursive: true });
   await page.context().storageState({ path: authFile });
 });

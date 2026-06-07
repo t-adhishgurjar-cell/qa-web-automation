@@ -1,6 +1,7 @@
 import { test as base, Page } from '@playwright/test';
 import { LoginPage } from '../pages/login.page';
 import { DashboardPage } from '../pages/dashboard.page';
+import { CustomerOnboardingPage } from '../pages/customer-onboarding.page';
 import { ApiHelper } from '../helpers/api.helper';
 import { Logger } from '../helpers/logger.helper';
 
@@ -8,6 +9,7 @@ import { Logger } from '../helpers/logger.helper';
 type PageFixtures = {
   loginPage: LoginPage;
   dashboardPage: DashboardPage;
+  customerOnboardingPage: CustomerOnboardingPage;
   apiHelper: ApiHelper;
 };
 
@@ -33,6 +35,10 @@ export const test = base.extend<PageFixtures, WorkerFixtures>({
 
   dashboardPage: async ({ page }, use) => {
     await use(new DashboardPage(page));
+  },
+
+  customerOnboardingPage: async ({ page }, use) => {
+    await use(new CustomerOnboardingPage(page));
   },
 
   // API helper fixture — pre-authenticated with env credentials

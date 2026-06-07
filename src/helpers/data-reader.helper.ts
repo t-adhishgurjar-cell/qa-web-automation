@@ -28,13 +28,13 @@ export class DataReader {
    *
    * const rows = DataReader.fromExcel('test-data/login-data.xlsx', 'InvalidCredentials');
    */
-  static fromExcel<T = Record<string, unknown>>(filePath: string, sheetName?: string): T[] {
+  static fromExcel<T = Record<string, unknown>>(filePath: string, sheetName?: string, headerRow = 0): T[] {
     const absolutePath = path.resolve(filePath);
     const workbook = XLSX.readFile(absolutePath);
     const sheet = sheetName
       ? workbook.Sheets[sheetName]
       : workbook.Sheets[workbook.SheetNames[0]];
-    return XLSX.utils.sheet_to_json<T>(sheet);
+    return XLSX.utils.sheet_to_json<T>(sheet, { range: headerRow });
   }
 
   /**

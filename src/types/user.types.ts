@@ -14,3 +14,12 @@ export interface UserProfile {
   role:      UserRole;
   avatar?:   string;
 }
+
+export interface CustomerProfile {
+  firstName: string;
+  lastName:  string;
+  email:     string;
+  company?:  string;
+  phone?:    string;
+  country?:  string;
+}

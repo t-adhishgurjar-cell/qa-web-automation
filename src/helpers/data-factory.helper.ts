@@ -1,4 +1,4 @@
-import { UserCredentials, UserProfile } from '../types/user.types';
+import { CustomerProfile, UserCredentials, UserProfile } from '../types/user.types';
 
 export class DataFactory {
   private static counter = 0;
@@ -47,6 +47,19 @@ export class DataFactory {
    */
   static createAdmin(overrides: Partial<UserProfile> = {}): UserProfile {
     return this.createUser({ role: 'admin', ...overrides });
+  }
+
+  static createCustomer(overrides: Partial<CustomerProfile> = {}): CustomerProfile {
+    const id = this.getUniqueId();
+    return {
+      firstName: 'Test',
+      lastName:  `Customer${id}`,
+      email:     this.generateEmail('customer'),
+      company:   `Test Company ${id}`,
+      phone:     '9876543210',
+      country:   'India',
+      ...overrides,
+    };
   }
 
   /**

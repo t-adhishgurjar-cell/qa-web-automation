@@ -21,12 +21,14 @@ test.describe('Dashboard - E2E Tests @regression @dashboard', () => {
   test('should navigate to a section via sidebar', async ({ dashboardPage }) => {
     await epic('Dashboard');
     await feature('Sidebar Navigation');
-    await story('Navigate to Admin');
+    await story('Navigate to Manage Users');
     await severity('normal');
-    await description('Verifies clicking a sidebar link navigates to the correct section');
+    await description('Verifies expanding Admin menu and navigating to Manage Users');
     await dashboardPage.navigate();
-    await dashboardPage.navigateToSection('Admin');
-    await dashboardPage.assertURL(/.*admin.*/);
+    await dashboardPage.assertDashboardLoaded();
+    await dashboardPage.expandSidebarSection('Admin');
+    await dashboardPage.navigateToSection('Manage Users');
+    await dashboardPage.assertURL(/ManageUser|Manage Users|Admin/i);
   });
 
   test('should log out successfully', async ({ dashboardPage, loginPage }) => {

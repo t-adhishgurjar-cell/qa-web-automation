@@ -2,26 +2,44 @@ import { Page } from '@playwright/test';
 import { BasePage } from './base.page';
 
 export class OtpPage extends BasePage {
-  private readonly otpInput = this.page.locator('#forgot_otp, #unlock_otp, input[type="text"][maxlength="6"]');
-  private readonly otpError = this.page.locator('#forgot_otp_err, #unlock_otp_err');
-  private readonly verifyButton = this.page.locator('#forgot_submit_btn, #unlock_submit_btn');
+  private readonly verifyButton = this.page.getByRole('button', { name: /^(VERIFY|Verify OTP)$/i });
+  private readonly forgotOtpInput = this.page.locator('#forgot_otp, #unlock_otp').first();
+  private readonly otpBoxes = this.page.locator('.otp-box');
+  private readonly otpError    = this.page.locator('#forgot_otp_err, #unlock_otp_err').first();
+  private readonly otpErrorText = this.page.getByText(/Invalid OTP|OTP expired|incorrect OTP/i).first();
 
   constructor(page: Page) {
     super(page);
   }
 
-  async isLoaded(timeout = 10000): Promise<boolean> {
-    return this.otpInput.isVisible({ timeout }).catch(() => false);
+  private otpBox(index: number) {
+    return this.otpBoxes.nth(index);
+  }
+
+  async isLoaded(timeout = 10_000): Promise<boolean> {
+    return this.verifyButton.isVisible({ timeout }).catch(() => false)
+      || this.forgotOtpInput.isVisible({ timeout }).catch(() => false)
+      || this.otpBoxes.first().isVisible({ timeout }).catch(() => false);
   }
 
   async enterOtp(code: string): Promise<void> {
-    await this.fillInput(this.otpInput, code);
+    const digits = code.replace(/\s/g, '').slice(0, 6);
+    if (await this.forgotOtpInput.isVisible().catch(() => false)) {
+      await this.fillInput(this.forgotOtpInput, digits);
+      return;
+    }
+
+    const count = await this.otpBoxes.count();
+    const length = Math.min(digits.length, count);
+    for (let i = 0; i < length; i++) {
+      await this.otpBox(i).fill(digits[i]);
+    }
   }
 
   async verify(code?: string): Promise<void> {
     const otp = code ?? process.env.TEST_OTP ?? '123456';
     await this.enterOtp(otp);
-    await this.clickElement(this.verifyButton, { force: true });
+    await this.clickElement(this.verifyButton);
     await this.waitForPageLoad();
   }
 
@@ -31,6 +49,16 @@ export class OtpPage extends BasePage {
   }
 
   async isErrorVisible(): Promise<boolean> {
-    return this.otpError.isVisible().catch(() => false);
+    const idBased = await this.otpError.isVisible().catch(() => false);
+    const textBased = await this.otpErrorText.isVisible().catch(() => false);
+    return idBased || textBased;
+  }
+
+  async clickResendOtp(): Promise<void> {
+    await this.page.getByRole('button', { name: /resend otp/i }).click({ force: true });
+  }
+
+  async isVerifyButtonEnabled(): Promise<boolean> {
+    return this.verifyButton.isEnabled();
   }
 }

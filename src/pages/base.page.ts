@@ -31,7 +31,7 @@ export abstract class BasePage {
 
   // ─── Element Actions ──────────────────────────────────────────────────────
   async clickElement(locator: Locator, options?: { force?: boolean }): Promise<void> {
-    this.logger.info(`Clicking element`);
+    this.logger.info(`Clicking element: ${locator}`);
     await locator.waitFor({ state: 'visible' });
     await locator.click(options);
   }
