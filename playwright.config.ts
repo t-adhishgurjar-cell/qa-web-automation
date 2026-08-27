@@ -7,7 +7,7 @@ dotenv.config({ path: `.env.${process.env.ENV || 'dev'}` });
  * Specs that drive authentication themselves. They get their own project so they
  * run unauthenticated; every other browser project skips them.
  */
-const AUTH_TESTS = /smoke\/login\.spec\.ts/;
+const AUTH_TESTS = /auth\/login\.spec\.ts/;
 
 /**
  * Browser projects must not pick up the auth setup, the API specs, or the auth
