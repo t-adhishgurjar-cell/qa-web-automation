@@ -1,8 +1,20 @@
 import { defineConfig, devices } from '@playwright/test';
 import * as dotenv from 'dotenv';
-import path from 'path';
 
 dotenv.config({ path: `.env.${process.env.ENV || 'dev'}` });
+
+/**
+ * Specs that drive authentication themselves. They get their own project so they
+ * run unauthenticated; every other browser project skips them.
+ */
+const AUTH_TESTS = /smoke\/login\.spec\.ts/;
+
+/**
+ * Browser projects must not pick up the auth setup, the API specs, or the auth
+ * specs — those belong to the `setup`, `api` and `auth` projects. Without this the
+ * API suite runs once per browser and auth.setup.ts executes as an ordinary test.
+ */
+const BROWSER_TEST_IGNORE = [/.*\.setup\.ts/, /.*\.api\.spec\.ts/, AUTH_TESTS];
 
 export default defineConfig({
   // Test directory
@@ -83,6 +95,15 @@ export default defineConfig({
       testMatch: /.*\.setup\.ts/,
     },
 
+    // Authentication specs — these drive login themselves, so they must NOT inherit
+    // a pre-authenticated storageState or depend on the setup project. Binding them
+    // to `setup` would gate the login suite on the very login it exists to verify.
+    {
+      name: 'auth',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: AUTH_TESTS,
+    },
+
     // Chromium
     {
       name: 'chromium',
@@ -90,6 +111,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: 'config/.auth/user.json',
       },
+      testIgnore: BROWSER_TEST_IGNORE,
       dependencies: ['setup'],
     },
 
@@ -100,6 +122,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: 'config/.auth/user.json',
       },
+      testIgnore: BROWSER_TEST_IGNORE,
       dependencies: ['setup'],
     },
 
@@ -110,6 +133,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: 'config/.auth/user.json',
       },
+      testIgnore: BROWSER_TEST_IGNORE,
       dependencies: ['setup'],
     },
 
@@ -117,12 +141,14 @@ export default defineConfig({
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 5'] },
+      testIgnore: BROWSER_TEST_IGNORE,
     },
 
     // Mobile Safari
     {
       name: 'mobile-safari',
       use: { ...devices['iPhone 13'] },
+      testIgnore: BROWSER_TEST_IGNORE,
     },
 
     // API tests — no browser, no setup dependency

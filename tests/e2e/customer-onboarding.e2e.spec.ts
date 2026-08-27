@@ -1,4 +1,4 @@
-import { test, expect } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/page.fixtures';
 import { DataFactory } from '../../src/helpers/data-factory.helper';
 import { epic, feature, story, severity, description, owner } from 'allure-js-commons';
 

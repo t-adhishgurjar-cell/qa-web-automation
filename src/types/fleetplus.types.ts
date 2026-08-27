@@ -1,4 +1,6 @@
 export interface FleetPlusCredential {
+  /** Territory/division the account is mapped to, from the credentials sheet. */
+  region?: string;
   sno: number;
   userType: string;
   mobile: string;
