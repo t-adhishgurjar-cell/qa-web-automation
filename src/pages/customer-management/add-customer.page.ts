@@ -96,23 +96,102 @@ export class AddCustomerPage extends BasePage {
     super(page);
   }
 
+  // ─── Footer controls ──────────────────────────────────────────────────────
+  readonly saveAsDraftButton = this.page.locator('#firstSavebtn');
+  readonly tab1NextButton = this.page.locator('#btnTab1Next');
+  readonly addressNextButton = this.page.locator('#btnShowOfficialDetails');
+  readonly branchNextButton = this.page.locator('#btnShowMeetingDetails');
+  readonly saveBranchButton = this.page.locator('#btnAddBOLocation');
+  readonly addAnotherBranchButton = this.page.locator('#btnRevealBoDraft');
+  readonly submitButton = this.page.locator('#btnAdd');
+
   // ─── Navigation ───────────────────────────────────────────────────────────
   /** Opens the Customer Onboarding list — where the menu's "Add Customer" lands. */
   async gotoList(): Promise<void> {
     await this.navigateTo(AddCustomerPage.LIST_URL);
   }
 
-  /** Opens the wizard directly. */
+  /**
+   * Opens the wizard.
+   *
+   * Deliberately goes through the list screen's Add action rather than navigating
+   * to WIZARD_URL directly. The same URL renders two different pages: reached by a
+   * direct goto, the server omits the entire footer (Save As Draft / Next /
+   * Submit), leaving a form that cannot be saved or advanced. Reached by clicking
+   * through, the full wizard renders. Nothing about the URL hints at this, and the
+   * degraded page looks complete until you try to submit it.
+   */
   async gotoWizard(): Promise<void> {
-    await this.navigateTo(AddCustomerPage.WIZARD_URL);
-    await this.referenceNo.waitFor({ state: 'visible', timeout: 30_000 });
-  }
-
-  /** Opens the wizard the way a user does — via the list screen's action. */
-  async openWizardFromList(): Promise<void> {
     await this.gotoList();
     await this.clickElement(this.addCustomerAction);
     await this.referenceNo.waitFor({ state: 'visible', timeout: 30_000 });
+    await this.saveAsDraftButton.waitFor({ state: 'visible', timeout: 30_000 });
+  }
+
+  /** Alias kept for readability where the entry path is the point of the test. */
+  async openWizardFromList(): Promise<void> {
+    await this.gotoWizard();
+  }
+
+  // ─── Dropdowns ────────────────────────────────────────────────────────────
+  /**
+   * Chooses an option from a SumoSelect dropdown.
+   *
+   * The native <select> is hidden behind the widget, so it cannot be clicked and
+   * `selectOption` fails its actionability checks. Setting the value and firing
+   * jQuery's change event drives the app's own handlers, which is what the
+   * cascading dropdowns (sub-type, division) listen for.
+   *
+   * Options arrive by AJAX, so this waits for real ones before choosing.
+   */
+  async selectDropdown(
+    selectId: string,
+    choice: { label?: string | RegExp; value?: string; index?: number } = {}
+  ): Promise<string> {
+    // Poll the option count rather than waitForFunction: this reports the real
+    // count on failure, so "never populated" is distinguishable from "populated
+    // late", and it does not depend on evaluating a string in page context.
+    const realOptions = this.page.locator(`#${selectId} option:not([value="0"]):not([value=""])`);
+    await expect
+      .poll(async () => realOptions.count(), {
+        timeout: 30_000,
+        message: `waiting for #${selectId} to load selectable options`,
+      })
+      .toBeGreaterThan(0);
+
+    const wanted = JSON.stringify({
+      label: choice.label instanceof RegExp ? choice.label.source : choice.label ?? null,
+      isRegex: choice.label instanceof RegExp,
+      value: choice.value ?? null,
+      index: choice.index ?? 1,
+    });
+
+    const selected = await this.page.evaluate(
+      `(function(){
+        var want = ${wanted};
+        var sel = document.getElementById('${selectId}');
+        var opts = Array.prototype.slice.call(sel.options)
+          .filter(function(o){ return o.value && o.value !== '0'; });
+        var chosen = null;
+        if (want.value) chosen = opts.filter(function(o){ return o.value === want.value; })[0];
+        else if (want.label) {
+          var re = want.isRegex ? new RegExp(want.label, 'i') : null;
+          chosen = opts.filter(function(o){
+            return re ? re.test(o.text) : o.text.trim().toLowerCase() === String(want.label).toLowerCase();
+          })[0];
+        }
+        if (!chosen) chosen = opts[Math.min(want.index - 1, opts.length - 1)];
+        if (!chosen) return '';
+        jQuery(sel).val(chosen.value).trigger('change');
+        if (sel.sumo && sel.sumo.reload) { try { sel.sumo.reload(); } catch (e) {} }
+        return chosen.text.trim();
+      })()`
+    );
+
+    if (!selected) throw new Error(`No option matched ${JSON.stringify(choice)} in #${selectId}.`);
+    this.logger.info(`#${selectId} = ${selected}`);
+    await this.page.waitForTimeout(600);
+    return String(selected);
   }
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -167,4 +246,353 @@ export class AddCustomerPage extends BasePage {
   async isVisible(locator: Locator): Promise<boolean> {
     return locator.isVisible().catch(() => false);
   }
+
+  // ─── Step 1: Basic Information ────────────────────────────────────────────
+  /**
+   * Fills the Basic Information step.
+   *
+   * Dropdowns default to the first real option where the test does not care which
+   * — the point of most cases is the flow, not a particular customer segment.
+   */
+  async fillBasicInformation(data: BasicInformation): Promise<void> {
+    this.logger.info('Filling Basic Information');
+
+    await this.selectDropdown('CustomerTypeID', { label: data.customerType });
+    await this.selectDropdown('CustomerSubTypeID', {});
+    await this.selectDropdown('CustStateID', {});
+    await this.selectDropdown('CustDivisionID', {});
+    await this.setRelatedParty(false);
+
+    await this.fillInput(this.businessName, data.businessName);
+    await this.fillInput(this.businessEmail, data.businessEmail);
+    await this.selectDropdown('CustomerBusinessType', {});
+
+    // PAN and the GST declaration are part of the draft the server validates on
+    // every step, not just at submit — skipping them fails the branch-step save
+    // with a bare "Could not save customer draft."
+    await this.page.locator('#SaveCustomerModel_PanDOB').fill(data.panDob);
+    await this.fillInput(this.panNumber, data.panNumber);
+    await this.panNumber.blur();
+    await this.page.waitForTimeout(1200);
+    await this.dismissValidationDialogs();
+    await this.uploadPanCard(data.uploadFile);
+
+    // Declaring "not GST registered" needs the declaration document instead.
+    await this.clickElement(this.gstRegisteredNo);
+    await this.page.waitForTimeout(600);
+    const gstDecl = this.page.locator('#GSTDeclUpload');
+    if (await gstDecl.count()) await gstDecl.setInputFiles(data.uploadFile);
+
+    await this.fillInput(this.customerName, data.customerName);
+    await this.selectDropdown('CustomerLanguagePreference', {});
+    await this.fillInput(this.customerEmail, data.customerEmail);
+
+    await this.verifyCustomerMobile(data.customerMobile, data.otp);
+
+    await this.selectDropdown('CustomerIdProofType', {});
+    await this.fillInput(this.idProofNo, data.idProofNumber);
+    await this.uploadCustomerIdProof(data.uploadFile);
+
+    await this.selectDropdown('CustomerSegmentID', {});
+    await this.selectDropdown('BuyingPatternID', {});
+
+    await this.fillInput(this.bankName, data.bankName);
+    await this.fillInput(this.bankAccountHolder, data.bankAccountHolder);
+    await this.fillInput(this.bankAccountNumber, data.bankAccountNumber);
+    await this.fillInput(this.ifscCode, data.ifscCode);
+    await this.uploadBankProof(data.uploadFile);
+  }
+
+  /**
+   * Dismisses the app's validation popups.
+   *
+   * The form validates several fields against the server on blur (mobile, PAN,
+   * referral code) and reports problems in a modal. An open modal swallows the
+   * next click, so it has to be cleared before carrying on.
+   */
+  async dismissValidationDialogs(): Promise<string[]> {
+    const messages: string[] = [];
+    for (const [textSel, okSel] of [
+      ['#failer-mess-text', '#failer-mess-popup button.btn-danger'],
+      ['#error-mess-text', '#error-mess-popup button.btn-danger'],
+      ['#succ-mess-text', '#succ-mess-popup button.btn_primary'],
+    ]) {
+      const ok = this.page.locator(okSel).first();
+      if (!(await ok.isVisible().catch(() => false))) continue;
+      const text = ((await this.page.locator(textSel).first().textContent().catch(() => '')) ?? '').trim();
+      if (text) messages.push(text);
+      await ok.click().catch(() => undefined);
+      await this.page.waitForTimeout(600);
+    }
+    if (messages.length) this.logger.info(`Dismissed dialog(s): ${messages.join(' | ')}`);
+    return messages;
+  }
+
+  /**
+   * Sends the customer-mobile OTP and verifies it.
+   *
+   * The mobile is validated server-side first; an already-registered number is
+   * rejected in a modal and Generate OTP then does nothing. That failure is
+   * surfaced by name rather than as a timeout on the hidden OTP box.
+   */
+  async verifyCustomerMobile(mobile: string, otp: string): Promise<void> {
+    await this.fillInput(this.customerMobile, mobile);
+    await this.customerMobile.blur();
+    await this.page.waitForTimeout(1500);
+
+    const onEntry = await this.dismissValidationDialogs();
+    if (onEntry.length) {
+      throw new Error(`Customer mobile ${mobile} was rejected: ${onEntry.join(' | ')}`);
+    }
+
+    await this.clickElement(this.generateMobileOtp);
+    await this.page.waitForTimeout(2000);
+
+    const afterSend = await this.dismissValidationDialogs();
+    const appeared = await this.mobileOtp
+      .waitFor({ state: 'visible', timeout: 20_000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!appeared) {
+      throw new Error(
+        `OTP field never appeared for ${mobile}` +
+          (afterSend.length ? ` — app said: ${afterSend.join(' | ')}` : ' and the app reported nothing.')
+      );
+    }
+
+    await this.fillInput(this.mobileOtp, otp);
+    await this.clickElement(this.verifyMobileOtp);
+    await this.page.waitForTimeout(1500);
+    await this.dismissValidationDialogs();
+  }
+
+  // ─── Uploads ──────────────────────────────────────────────────────────────
+  // The visible control is a styled button; the real input is the hidden file
+  // element, which setInputFiles drives directly.
+  async uploadPanCard(file: string): Promise<void> {
+    await this.page.locator('#PanCardUpload').setInputFiles(file);
+  }
+
+  async uploadCustomerIdProof(file: string): Promise<void> {
+    await this.page.locator('#CustomerIdProofUpload').setInputFiles(file);
+  }
+
+  async uploadBankProof(file: string): Promise<void> {
+    await this.page.locator('#BankProofUpload').setInputFiles(file);
+  }
+
+  async uploadAddressProof(file: string): Promise<void> {
+    await this.page.locator('#AddressProofUpload').setInputFiles(file);
+  }
+
+  // ─── Step navigation ──────────────────────────────────────────────────────
+  async saveAsDraft(): Promise<void> {
+    this.logger.info('Save As Draft');
+    await this.clickElement(this.saveAsDraftButton);
+    await this.page.waitForTimeout(2500);
+  }
+
+  async goToAddressStep(): Promise<void> {
+    this.logger.info('Basic Information -> Address');
+    await this.clickElement(this.tab1NextButton);
+    await this.addressPinCode.waitFor({ state: 'visible', timeout: 30_000 });
+  }
+
+  // ─── Step 2: Address ──────────────────────────────────────────────────────
+  async fillAddress(data: AddressDetails): Promise<void> {
+    this.logger.info('Filling Address');
+    await this.enterAddressPinCode(data.pinCode);
+    // State, city and district auto-fill from the pin code.
+    await expect(this.addressState).not.toHaveValue('', { timeout: 20_000 });
+    await this.fillInput(this.businessAddress, data.businessAddress);
+    await this.selectDropdown('AddressProofType', {});
+    await this.fillInput(this.page.locator('#AddressProofNo'), data.addressProofNumber);
+    await this.uploadAddressProof(data.uploadFile);
+  }
+
+  async goToBranchStep(): Promise<void> {
+    this.logger.info('Address -> Branch location');
+    await this.clickElement(this.addressNextButton);
+    await this.page.locator('#uiBOPinCode').waitFor({ state: 'visible', timeout: 30_000 });
+  }
+
+  // ─── Step 3: Branch location ──────────────────────────────────────────────
+  async fillBranch(data: BranchDetails): Promise<void> {
+    this.logger.info('Filling Branch location');
+    await this.fillInput(this.page.locator('#uiBOPinCode'), data.pinCode);
+    await this.page.locator('#uiBOPinCode').blur();
+    await this.fillInput(this.page.locator('#uiBOManagerName'), data.managerName);
+
+    // Reuse the customer's contact details rather than re-verifying a second OTP.
+    await this.page.locator('#uiBOEmailSameAsParent').check();
+    await this.page.locator('#uiBOAddressSameAsParent').check();
+    await this.page.locator('#uiBOMobileSameAsParent').check();
+    await this.selectDropdown('uiBOLanguage', {});
+
+    // Location is required but is not filled by the pin-code lookup.
+    const location = this.page.locator('#uiBOLocation');
+    if (await location.isVisible().catch(() => false)) {
+      if (!(await location.inputValue()).trim()) {
+        await this.fillInput(location, data.location ?? 'Test Branch');
+      }
+    }
+
+    this.logger.info(`Branch fields: ${JSON.stringify(await this.branchFieldValues())}`);
+  }
+
+  /** Current values of the branch block — used to explain a blocked Save. */
+  async branchFieldValues(): Promise<Record<string, string>> {
+    return this.page.evaluate(`(function(){
+      var out = {};
+      ['uiBOPinCode','uiBOState','uiBOCity','uiBOLocation','uiBOManagerName','uiBOEmail','uiBOMobile','uiBOAddress','uiBOLanguage']
+        .forEach(function(id){
+          var e = document.getElementById(id);
+          out[id] = e ? (e.value || '').trim() : '(absent)';
+        });
+      return out;
+    })()`);
+  }
+
+  async saveBranch(): Promise<void> {
+    this.logger.info('Save Branch');
+    await this.clickElement(this.saveBranchButton);
+    await this.page.waitForTimeout(2500);
+    const said = await this.dismissValidationDialogs();
+    if (said.length) this.logger.info(`Save Branch said: ${said.join(' | ')}`);
+
+    // Saving opens a fresh empty draft slot for the next branch. An open draft
+    // blocks forward navigation without saying so, which is why the recorded flow
+    // clicks Clear before Next.
+    await this.clearBranchDraft();
+  }
+
+  /** Discards the empty branch draft slot if one is open. */
+  async clearBranchDraft(): Promise<void> {
+    const clear = this.page.locator('#btnRemoveCurrentBOSlot');
+    if (await clear.isVisible().catch(() => false)) {
+      this.logger.info('Clearing the open branch draft slot');
+      await clear.click().catch(() => undefined);
+      await this.page.waitForTimeout(1000);
+      const confirm = this.page.locator('#confirmation-ok-btn');
+      if (await confirm.isVisible().catch(() => false)) {
+        await confirm.click();
+        await this.page.waitForTimeout(1000);
+      }
+    }
+  }
+
+  /**
+   * Field-level validation messages currently on screen.
+   *
+   * The wizard blocks forward navigation silently when a step is incomplete, so
+   * the useful diagnostic is which fields it is complaining about.
+   */
+  async visibleFieldErrors(): Promise<string[]> {
+    return this.page.evaluate(`(function(){
+      var out = [];
+      document.querySelectorAll('.field-validation-error, .text-danger, .invalid-feedback, span[id$="_error"]')
+        .forEach(function(e){
+          var t = (e.textContent || '').replace(/\s+/g, ' ').trim();
+          var r = e.getBoundingClientRect();
+          if (t && t !== '*' && r.width > 0 && r.height > 0) out.push(t.slice(0, 70));
+        });
+      return out.slice(0, 12);
+    })()`);
+  }
+
+  async goToMeetingStep(): Promise<void> {
+    this.logger.info('Branch location -> Meeting Details');
+    await this.clearBranchDraft();
+
+    const nextState = await this.page.evaluate(`(function(){
+      var b = document.getElementById('btnShowMeetingDetails');
+      if (!b) return 'ABSENT';
+      var r = b.getBoundingClientRect();
+      return 'visible=' + (r.width>0&&r.height>0) + ' disabled=' + !!b.disabled;
+    })()`);
+    this.logger.info(`#btnShowMeetingDetails ${nextState}`);
+
+    await this.clickElement(this.branchNextButton);
+    await this.page.waitForTimeout(2500);
+    const said = await this.dismissValidationDialogs();
+
+    const arrived = await this.page
+      .locator('#SaveCustomerModel_MeetingDetails_MeetingDate')
+      .waitFor({ state: 'visible', timeout: 25_000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!arrived) {
+      const errors = await this.visibleFieldErrors();
+      const branchSaved = await this.page.getByText(/Branch Location #\d/i).count();
+      const tabs = await this.page.evaluate(`(function(){
+        var out = [];
+        document.querySelectorAll('#dvAddCustomerTabNav a.nav-link').forEach(function(a){
+          out.push(a.id + (a.classList.contains('active') ? ' [ACTIVE]' : '') +
+                   (a.classList.contains('disable') ? ' [disabled]' : ''));
+        });
+        var panes = [];
+        ['basicInfo','address','dvBranchLocation','meetingDetails','nfoDetails'].forEach(function(id){
+          var p = document.getElementById(id);
+          if (p) panes.push(id + '=' + (p.classList.contains('active') || p.classList.contains('show') ? 'shown' : 'hidden'));
+        });
+        return 'tabs: ' + out.join(', ') + '\\npanes: ' + panes.join(', ');
+      })()`);
+      throw new Error(
+        'Meeting Details step did not open after Branch location.\n' +
+          `Saved branch summaries on page: ${branchSaved}\n${tabs}\n` +
+          (said.length ? `App said: ${said.join(' | ')}\n` : 'App displayed no dialog.\n') +
+          (errors.length ? `Validation on screen:\n  ${errors.join('\n  ')}` : 'No validation message was displayed.')
+      );
+    }
+  }
+
+  // ─── Step 4: Meeting details, then submit ─────────────────────────────────
+  async fillMeetingDetails(meetingDate: string): Promise<void> {
+    this.logger.info('Filling Meeting Details');
+    await this.page.locator('#SaveCustomerModel_MeetingDetails_MeetingDate').fill(meetingDate);
+    await this.page.locator('label[for="MeetingTypeInPerson"]').click();
+  }
+
+  async submit(): Promise<void> {
+    this.logger.info('Submitting application');
+    await this.clickElement(this.submitButton);
+    // A confirmation dialog follows; the recorded flow clicks Submit twice.
+    await this.page.waitForTimeout(1500);
+    const confirm = this.page.locator('#confirmation-ok-btn');
+    if (await confirm.isVisible().catch(() => false)) await confirm.click();
+    await this.page.waitForTimeout(3000);
+  }
+}
+
+export interface BasicInformation {
+  customerType: string;
+  panNumber: string;
+  panDob: string;
+  businessName: string;
+  businessEmail: string;
+  customerName: string;
+  customerEmail: string;
+  customerMobile: string;
+  otp: string;
+  idProofNumber: string;
+  bankName: string;
+  bankAccountHolder: string;
+  bankAccountNumber: string;
+  ifscCode: string;
+  uploadFile: string;
+}
+
+export interface AddressDetails {
+  pinCode: string;
+  businessAddress: string;
+  addressProofNumber: string;
+  uploadFile: string;
+}
+
+export interface BranchDetails {
+  pinCode: string;
+  managerName: string;
+  location?: string;
 }
