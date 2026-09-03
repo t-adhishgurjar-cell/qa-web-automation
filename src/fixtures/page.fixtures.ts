@@ -3,6 +3,7 @@ import { LoginPage } from '../pages/login.page';
 import { DashboardPage } from '../pages/dashboard.page';
 import { CustomerOnboardingPage } from '../pages/customer-onboarding.page';
 import { OtpPage } from '../pages/otp.page';
+import { AddCustomerPage } from '../pages/customer-management/add-customer.page';
 import { UserTypeSelectionPage } from '../pages/user-type-selection.page';
 import { ApiHelper } from '../helpers/api.helper';
 import { DbHelper } from '../helpers/db.helper';
@@ -11,6 +12,7 @@ import { Logger } from '../helpers/logger.helper';
 // ─── Define custom fixture types ──────────────────────────────────────────────
 type PageFixtures = {
   loginPage: LoginPage;
+  addCustomerPage: AddCustomerPage;
   otpPage: OtpPage;
   userTypeSelectionPage: UserTypeSelectionPage;
   dashboardPage: DashboardPage;
@@ -54,6 +56,10 @@ export const test = base.extend<PageFixtures, WorkerFixtures>({
   // Page-scoped page object fixtures
   loginPage: async ({ page }, use) => {
     await use(new LoginPage(page));
+  },
+
+  addCustomerPage: async ({ page }, use) => {
+    await use(new AddCustomerPage(page));
   },
 
   otpPage: async ({ page }, use) => {
