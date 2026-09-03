@@ -7,7 +7,7 @@ dotenv.config({ path: `.env.${process.env.ENV || 'dev'}` });
  * Specs that drive authentication themselves. They get their own project so they
  * run unauthenticated; every other browser project skips them.
  */
-const AUTH_TESTS = /auth\/login\.spec\.ts/;
+const AUTH_TESTS = /auth[\\/]login[\w-]*\.spec\.ts/;
 
 /**
  * Browser projects must not pick up the auth setup, the API specs, or the auth
@@ -54,14 +54,16 @@ export default defineConfig({
     // Base URL from environment
     baseURL: process.env.BASE_URL || 'https://example.com',
 
-    // Collect trace on first retry
-    trace: 'on-first-retry',
+    // Keep a trace for every failure, not only for retried ones. Retries are 0
+    // locally, so 'on-first-retry' meant a local failure produced no trace at all
+    // — exactly when one is most useful. Allure attaches these to the result.
+    trace: 'retain-on-failure',
 
     // Screenshot on failure
     screenshot: 'only-on-failure',
 
-    // Video on first retry
-    video: 'on-first-retry',
+    // Video on failure, for the same reason as the trace above.
+    video: 'retain-on-failure',
 
     // Action timeout
     actionTimeout: 15_000,
@@ -69,8 +71,9 @@ export default defineConfig({
     // Navigation timeout
     navigationTimeout: 60_000,
 
-    // Run headed locally, headless on CI
-    headless: !!process.env.CI,
+    // Headed locally so a run can be watched; headless on CI, or on demand via
+    // HEADLESS=true for a long local run you do not want stealing focus.
+    headless: !!process.env.CI || process.env.HEADLESS === 'true',
 
     // Viewport
     viewport: { width: 1280, height: 720 },

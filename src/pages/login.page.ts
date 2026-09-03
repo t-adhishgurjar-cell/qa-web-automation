@@ -1,6 +1,7 @@
 import { Page, expect } from '@playwright/test';
 import { BasePage } from './base.page';
 import { OtpPage } from './otp.page';
+import { PreLoginOtpModal } from './components/pre-login-otp-modal.component';
 import { RoleSelector, UserTypeSelectionPage } from './user-type-selection.page';
 
 /**
@@ -21,13 +22,52 @@ export const INVALID_CREDENTIALS = /invalid username or password|invalid credent
 /** Lockout wording — a distinct state from "rejected", worth naming separately. */
 export const ACCOUNT_LOCKED = /account has been locked|unlock your account/i;
 
+/** The username field silently drops anything outside this set as the user types. */
+export const USERNAME_ALLOWED_CHARACTERS = /^[A-Za-z0-9@._-]*$/;
+
+/** Field length limits, read off the live markup rather than assumed. */
+export const FIELD_MAX_LENGTH = { username: 50, captcha: 6 } as const;
+
 export class LoginPage extends BasePage {
   // ─── Login form ───────────────────────────────────────────────────────────
-  private readonly usernameInput = this.page.locator('#Username');
-  private readonly passwordInput = this.page.locator('#Password');
-  private readonly captchaInput = this.page.locator('#CaptchaCode');
-  private readonly loginButton = this.page.locator('#btnLogin');
-  private readonly showPasswordToggle = this.page.getByTitle('Show Password').locator('i');
+  // Public so specs can make field-level assertions (maxlength, autocomplete,
+  // masking) without duplicating selectors. Everything else stays private.
+  readonly usernameInput = this.page.locator('#Username');
+  readonly passwordInput = this.page.locator('#Password');
+  readonly captchaInput = this.page.locator('#CaptchaCode');
+  readonly loginButton = this.page.locator('#btnLogin');
+
+  private readonly showPasswordToggle = this.page.locator('#togglePassword');
+
+  // ─── Page furniture ───────────────────────────────────────────────────────
+  // Named individually because TC-LGN-001 is a build-acceptance gate: when it
+  // fails it must say *which* control is missing, not "the page looks wrong".
+  readonly brandLogo = this.page.getByAltText('Nayara Energy Logo').first();
+  readonly bannerImage = this.page.getByAltText('Nayara Banner');
+  readonly heading = this.page.getByText('Welcome to FLEETPLUS', { exact: true });
+  readonly subtitle = this.page.getByText('Please enter your details', { exact: true });
+  readonly captchaImage = this.page.locator('#captchaImg');
+  readonly captchaRefreshButton = this.page.locator('#captchaRefreshBtn');
+  readonly forgotPasswordLink = this.page.locator('#forgotPasswordLink');
+  readonly unlockUserLink = this.page.locator('#unlockUserLink');
+  readonly signUpLink = this.page.getByRole('link', { name: 'Sign Up' });
+  readonly fleetHelplineText = this.page.getByText(/New fleet customer sign-up/i);
+  readonly personalSignUpText = this.page.getByText(/New personal customer sign-up/i);
+
+  // ─── Hidden fields that carry the login contract ──────────────────────────
+  readonly loginStageField = this.page.locator('input[name="LoginStage"]');
+  readonly clientPayloadField = this.page.locator('#clientPayload');
+  readonly antiForgeryField = this.page.locator('input[name="__RequestVerificationToken"]');
+
+  /** The banner the app writes ?message=… into. */
+  readonly flashMessage = this.page.locator('#message');
+
+  // ─── Inline field validation ──────────────────────────────────────────────
+  // Client-side, and distinct from the server's modals: these fill in before any
+  // request is made, so a test asserting on them proves the form never submitted.
+  readonly usernameError = this.page.locator('#username_error');
+  readonly passwordError = this.page.locator('#password_error');
+  readonly captchaError = this.page.locator('#captcha_error');
 
   /**
    * Hidden field, populated asynchronously by POST /Home/GetIP, and part of the
@@ -61,13 +101,11 @@ export class LoginPage extends BasePage {
     '#nayara-profile-tab-continue-btn',
   ];
 
-  // ─── Forgot-password / unlock-user flow ───────────────────────────────────
-  private readonly forgotPasswordLink = this.page.getByRole('link', { name: /forgot password/i })
-    .or(this.page.getByRole('button', { name: /forgot password/i }));
-  private readonly unlockUserLink = this.page.getByRole('button', { name: /unlock user/i })
-    .or(this.page.getByRole('link', { name: /unlock user/i })).first();
-  private readonly forgotUsernameInput = this.page.locator('#forgot_username, #unlock_username').first();
-  private readonly forgotSubmitButton = this.page.locator('#forgot_submit_btn, #unlock_submit_btn').first();
+  // ─── Forgot-password / unlock-user modals ─────────────────────────────────
+  // Both dialogs are the same widget under a different prefix, so they share one
+  // component rather than two page objects. See PreLoginOtpModal.
+  readonly forgotPassword = new PreLoginOtpModal(this.page, 'forgot');
+  readonly unlockUser = new PreLoginOtpModal(this.page, 'unlock');
 
   constructor(page: Page) {
     super(page);
@@ -161,14 +199,26 @@ export class LoginPage extends BasePage {
    * paths, so this waits for whichever arrives first and lets the caller decide.
    */
   private async waitForPostLoginLanding(timeout = 20_000): Promise<void> {
+    await this.waitForOutcome(['.user-type-card', '.otp-box', '#sidebarMenu'], timeout);
+  }
+
+  /**
+   * Waits for the app to reach one of `destinations`, or to report an error.
+   *
+   * The destination list is a parameter because it shrinks as the journey
+   * advances. After the profile step, `.user-type-card` is still on screen — so
+   * including it would make every later wait return immediately and the flow
+   * would appear to have progressed when it had not.
+   *
+   * The session prompt is always an acceptable outcome: it is a legitimate answer
+   * to a login POST, and treating it as one avoids burning the whole timeout
+   * before anyone notices it is there.
+   */
+  private async waitForOutcome(destinations: string[], timeout = 20_000): Promise<void> {
     // Race progress against rejection. Waiting only for a destination means every
     // failed login burns the full timeout before the test can assert on the error.
     const arrived = this.page
-      .locator(
-        // Destinations, plus the session prompt — it is a legitimate outcome of a
-        // login POST, and treating it as one avoids burning the whole timeout.
-        `.user-type-card, .otp-box, #sidebarMenu, ${this.sessionDialogButtons.join(', ')}`
-      )
+      .locator([...destinations, ...this.sessionDialogButtons].join(', '))
       .first()
       .waitFor({ state: 'visible', timeout })
       .catch(() => undefined);
@@ -190,7 +240,23 @@ export class LoginPage extends BasePage {
     if (!(await selection.isPresent(2_000))) return;
 
     await selection.selectRole(role);
-    await this.dismissSessionDialogs();
+
+    // Choosing a profile can raise the active-session prompt ("Confirmation —
+    // Yes/Cancel") when the account is already signed in elsewhere, and it renders
+    // a moment *after* Get Started. Checking for it immediately finds nothing, and
+    // the browser then sits on the profile page until the test times out on a
+    // missing dashboard — which reads as a broken login rather than an unanswered
+    // prompt. So wait for whatever the app produces, then clear it if that is what
+    // turned up.
+    //
+    // The destinations deliberately exclude .user-type-card: it is still on screen
+    // at this point, and including it would satisfy the wait instantly.
+    const afterRoleSelection = ['.otp-box', '#sidebarMenu'];
+
+    await this.waitForOutcome(afterRoleSelection);
+    if (await this.dismissSessionDialogs()) {
+      await this.waitForOutcome(afterRoleSelection);
+    }
   }
 
   /** Completes 2FA when the app presents it. */
@@ -227,17 +293,125 @@ export class LoginPage extends BasePage {
   }
 
   async openUnlockUserFlow(): Promise<void> {
-    await this.clickElement(this.unlockUserLink);
+    await this.unlockUser.open();
   }
 
   async openForgotPasswordFlow(): Promise<void> {
-    await this.clickElement(this.forgotPasswordLink);
+    await this.forgotPassword.open();
   }
 
-  async requestOtpForUsername(username: string): Promise<void> {
-    await this.fillInput(this.forgotUsernameInput, username);
-    await this.clickElement(this.forgotSubmitButton, { force: true });
-    await this.waitForPageLoad();
+  async requestOtpForUsername(username: string): Promise<boolean> {
+    return this.forgotPassword.requestOtp(username);
+  }
+
+  // ─── Field-level helpers ──────────────────────────────────────────────────
+  /**
+   * Types `raw` into the username field and returns what the field kept.
+   *
+   * The field runs a client-side sanitiser on every keystroke, dropping anything
+   * outside [A-Za-z0-9@._-] — spaces, emoji, angle brackets and quotes all vanish
+   * as they are typed. fill() sets the value in one shot and bypasses that entirely,
+   * so the sanitiser tests must type character by character or they prove nothing.
+   */
+  async typeUsername(raw: string): Promise<string> {
+    await this.usernameInput.fill('');
+    await this.usernameInput.pressSequentially(raw, { delay: 5 });
+    await this.usernameInput.blur();
+    return this.usernameInput.inputValue();
+  }
+
+  /** Same, for the captcha field — it enforces its own six-character limit. */
+  async typeCaptcha(raw: string): Promise<string> {
+    await this.captchaInput.fill('');
+    await this.captchaInput.pressSequentially(raw, { delay: 5 });
+    return this.captchaInput.inputValue();
+  }
+
+  /** Submits with the keyboard, as a user tabbing through the form would. */
+  async submitWithEnter(): Promise<void> {
+    await this.passwordInput.press('Enter');
+  }
+
+  /**
+   * Clicks LOGIN and waits for the client-side validation to answer, retrying if
+   * it does not.
+   *
+   * Same race as the modals: the button is rendered, visible and enabled before
+   * the page script binds its submit handler, and a click in that window is
+   * accepted by the browser and does nothing at all. Playwright's actionability
+   * checks cannot see the difference, so the test reports "no validation error
+   * appeared" — which reads exactly like the application failing to validate.
+   *
+   * Retrying is the honest fix: a click that produces validation proves the
+   * handler is bound, and one that does not is indistinguishable from the page
+   * not being ready yet.
+   */
+  async submitExpectingValidation(
+    via: 'click' | 'enter' = 'click',
+    attempts = 3
+  ): Promise<void> {
+    await this.waitUntilSubmittable();
+
+    const populatedError = this.page
+      .locator('#username_error, #password_error, #captcha_error')
+      .filter({ hasText: /\S/ })
+      .first();
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      if (via === 'enter') {
+        await this.submitWithEnter();
+      } else {
+        await this.loginButton.click();
+      }
+
+      const validated = await populatedError
+        .waitFor({ state: 'visible', timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (validated) return;
+
+      this.logger.warn(
+        `Submitting by ${via} produced no validation message ` +
+          `(attempt ${attempt}/${attempts}) — the submit handler is probably not ` +
+          `bound yet.`
+      );
+    }
+
+    throw new Error(
+      `Submitting by ${via} ${attempts} times produced no client-side validation on ` +
+        `a form that should have been refused. Either the page script failed to ` +
+        `load, or the form validation has genuinely regressed. ` +
+        `Current URL: ${this.page.url()}`
+    );
+  }
+
+  async loginStage(): Promise<string> {
+    return this.loginStageField.inputValue();
+  }
+
+  async antiForgeryToken(): Promise<string> {
+    return this.antiForgeryField.inputValue();
+  }
+
+  async captchaImageSrc(): Promise<string> {
+    return (await this.captchaImage.getAttribute('src')) ?? '';
+  }
+
+  async clientIp(): Promise<string> {
+    return (await this.userIpField.inputValue()).trim();
+  }
+
+  /**
+   * Fills the form without submitting.
+   *
+   * Used by the tests that check a field survives a failed submit — they need the
+   * form populated but must control when the POST happens.
+   */
+  async fillForm(username: string, password: string, captcha = '123456'): Promise<void> {
+    await this.fillInput(this.usernameInput, username);
+    await this.fillInput(this.passwordInput, password);
+    await this.fillInput(this.captchaInput, captcha);
   }
 
   // ─── Reading errors ───────────────────────────────────────────────────────

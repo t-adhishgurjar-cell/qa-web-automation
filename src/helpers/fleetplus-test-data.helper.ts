@@ -7,6 +7,29 @@ export const CREDENTIALS_FILE = 'test-data/FleetPlusUsercredentials.xlsx';
 export const LOGIN_SHEET = 'Login';
 export const CREDENTIALS_SHEET = 'User Credentials';
 
+/** The login test-case workbook — the source of truth for TC-LGN-* metadata. */
+export const LOGIN_CASES_FILE = 'test-data/Nayara_FleetPlus_Login_TestCases.xlsx';
+export const LOGIN_CASES_SHEET = 'Login TCs';
+
+/** One row of the login test-case workbook, as the report needs it. */
+export interface LoginCaseMetadata {
+  tcId: string;
+  module: string;
+  testType: string;
+  suite: string;
+  scenario: string;
+  caseDescription: string;
+  preconditions: string;
+  steps: string;
+  testData: string;
+  expectedResult: string;
+  priority: string;
+  severity: string;
+  layer: string;
+  remarks: string;
+  automate: string;
+}
+
 /**
  * Columns of the credentials sheet: Role | Username | Password | Region.
  *
@@ -166,6 +189,95 @@ export class FleetPlusTestData {
       || creds[0];
 
     return preferred;
+  }
+
+  /**
+   * TC-LGN-* metadata from the login test-case workbook, keyed by test case id.
+   *
+   * Read once and cached: the spec asks for a row per test, and re-parsing a
+   * 150-row workbook 77 times would add real time to every run.
+   *
+   * Returns an empty map — rather than throwing — when the workbook is absent.
+   * test-data/*.xlsx is gitignored, so CI legitimately runs without it, and a
+   * missing spreadsheet must degrade the *report* rather than fail the *tests*.
+   */
+  private static loginCaseIndex: Map<string, LoginCaseMetadata> | undefined;
+
+  static getLoginCaseIndex(): Map<string, LoginCaseMetadata> {
+    if (this.loginCaseIndex) return this.loginCaseIndex;
+
+    const index = new Map<string, LoginCaseMetadata>();
+    this.loginCaseIndex = index;
+
+    let grid: string[][];
+    try {
+      const workbook = XLSX.readFile(LOGIN_CASES_FILE);
+      const sheet = workbook.Sheets[LOGIN_CASES_SHEET];
+      if (!sheet) return index;
+      grid = XLSX.utils
+        .sheet_to_json<string[]>(sheet, { header: 1, defval: '' })
+        .map(row => row.map(cell => String(cell ?? '').trim()));
+    } catch {
+      return index; // Workbook not present — the report loses detail, nothing else.
+    }
+
+    if (grid.length < 2) return index;
+
+    // Columns resolved by header name, not position: this workbook is
+    // hand-maintained and a inserted column would silently shift every field.
+    const header = grid[0].map(c => c.toLowerCase());
+    const at = (...names: string[]): number =>
+      header.findIndex(c => names.some(n => c === n || c.startsWith(n)));
+
+    const columns = {
+      tcId: at('test case id'),
+      module: at('module name'),
+      testType: at('test type'),
+      suite: at('suite'),
+      scenario: at('test scenario'),
+      caseDescription: at('test case description'),
+      preconditions: at('precondition'),
+      steps: at('test steps'),
+      testData: at('test data'),
+      expectedResult: at('expected result'),
+      priority: at('priority'),
+      severity: at('severity'),
+      layer: at('layer'),
+      remarks: at('remarks'),
+      automate: at('automate'),
+    };
+
+    if (columns.tcId < 0) return index;
+
+    for (const row of grid.slice(1)) {
+      const tcId = row[columns.tcId] ?? '';
+      if (!tcId) continue;
+
+      const cell = (i: number): string => (i >= 0 ? (row[i] ?? '') : '');
+      index.set(tcId, {
+        tcId,
+        module: cell(columns.module),
+        testType: cell(columns.testType),
+        suite: cell(columns.suite),
+        scenario: cell(columns.scenario),
+        caseDescription: cell(columns.caseDescription),
+        preconditions: cell(columns.preconditions),
+        steps: cell(columns.steps),
+        testData: cell(columns.testData),
+        expectedResult: cell(columns.expectedResult),
+        priority: cell(columns.priority),
+        severity: cell(columns.severity),
+        layer: cell(columns.layer),
+        remarks: cell(columns.remarks),
+        automate: cell(columns.automate),
+      });
+    }
+
+    return index;
+  }
+
+  static getLoginCase(tcId: string): LoginCaseMetadata | undefined {
+    return this.getLoginCaseIndex().get(tcId);
   }
 
   static getLoginTestCases(): LoginTestCase[] {
