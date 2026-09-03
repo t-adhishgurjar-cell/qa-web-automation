@@ -5,6 +5,7 @@ import { CustomerOnboardingPage } from '../pages/customer-onboarding.page';
 import { OtpPage } from '../pages/otp.page';
 import { UserTypeSelectionPage } from '../pages/user-type-selection.page';
 import { ApiHelper } from '../helpers/api.helper';
+import { DbHelper } from '../helpers/db.helper';
 import { Logger } from '../helpers/logger.helper';
 
 // ─── Define custom fixture types ──────────────────────────────────────────────
@@ -19,6 +20,14 @@ type PageFixtures = {
 
 type WorkerFixtures = {
   logger: Logger;
+  /**
+   * Read-only database access, shared across every test in a worker.
+   *
+   * Worker-scoped on purpose: the connection pool is expensive to build and the
+   * queries are reads, so there is nothing per-test to isolate. The pool is
+   * closed when the worker finishes.
+   */
+  db: typeof DbHelper;
 };
 
 // ─── Extend base test with custom fixtures ────────────────────────────────────
@@ -29,6 +38,15 @@ export const test = base.extend<PageFixtures, WorkerFixtures>({
     async ({}, use) => {
       const logger = new Logger('TestRunner');
       await use(logger);
+    },
+    { scope: 'worker' },
+  ],
+
+  db: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      await use(DbHelper);
+      await DbHelper.close();
     },
     { scope: 'worker' },
   ],

@@ -14,7 +14,10 @@ const AUTH_TESTS = /auth[\\/]login[\w-]*\.spec\.ts/;
  * specs — those belong to the `setup`, `api` and `auth` projects. Without this the
  * API suite runs once per browser and auth.setup.ts executes as an ordinary test.
  */
-const BROWSER_TEST_IGNORE = [/.*\.setup\.ts/, /.*\.api\.spec\.ts/, AUTH_TESTS];
+/** Database specs need no browser and belong to the `database` project. */
+const DB_TESTS = /database[\\/].*\.spec\.ts/;
+
+const BROWSER_TEST_IGNORE = [/.*\.setup\.ts/, /.*\.api\.spec\.ts/, AUTH_TESTS, DB_TESTS];
 
 export default defineConfig({
   // Test directory
@@ -158,6 +161,13 @@ export default defineConfig({
     {
       name: 'api',
       testMatch: /.*\.api\.spec\.ts/,
+    },
+
+    // Database tests — no browser, no setup dependency. Read-only queries against
+    // the QA SQL Server, used to resolve test-data preconditions the UI masks.
+    {
+      name: 'database',
+      testMatch: DB_TESTS,
     },
   ],
 });
