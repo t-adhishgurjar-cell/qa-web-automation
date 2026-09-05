@@ -22,7 +22,8 @@
     "lint:fix": "eslint . --ext .ts --ignore-path .gitignore --fix",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf test-results playwright-report allure-results allure-report",
-    "allure:serve": "allure serve allure-results --name \"FleetPlus Login\""
+    "allure:serve": "allure serve allure-results --name \"FleetPlus Login\"",
+    "visual:report": "tsx scripts/build-visual-report.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",

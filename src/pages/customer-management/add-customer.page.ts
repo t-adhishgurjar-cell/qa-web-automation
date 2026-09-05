@@ -105,6 +105,17 @@ export class AddCustomerPage extends BasePage {
   readonly addAnotherBranchButton = this.page.locator('#btnRevealBoDraft');
   readonly submitButton = this.page.locator('#btnAdd');
 
+  /**
+   * The confirmation the app shows on a successful submit.
+   *
+   * The wizard does *not* navigate away or hide its Submit button — it stays put
+   * and raises this dialog over the top. Asserting that the button disappears
+   * therefore fails on a submission that in fact succeeded.
+   */
+  readonly submissionSuccess = this.page
+    .locator('.modal.show')
+    .filter({ hasText: /has been successfully submitted/i });
+
   // ─── Navigation ───────────────────────────────────────────────────────────
   /** Opens the Customer Onboarding list — where the menu's "Add Customer" lands. */
   async gotoList(): Promise<void> {
@@ -144,9 +155,16 @@ export class AddCustomerPage extends BasePage {
    *
    * Options arrive by AJAX, so this waits for real ones before choosing.
    */
+  /**
+   * @param choice.avoid Options whose text matches are excluded before the
+   *   index fallback picks one. Needed because "Others" is the first option in
+   *   several of these lists, and choosing it reveals a second required
+   *   "Others (Describe)" field that nothing then fills — so the step is left
+   *   quietly invalid while still allowing the wizard to advance.
+   */
   async selectDropdown(
     selectId: string,
-    choice: { label?: string | RegExp; value?: string; index?: number } = {}
+    choice: { label?: string | RegExp; value?: string; index?: number; avoid?: RegExp } = {}
   ): Promise<string> {
     // Poll the option count rather than waitForFunction: this reports the real
     // count on failure, so "never populated" is distinguishable from "populated
@@ -164,6 +182,7 @@ export class AddCustomerPage extends BasePage {
       isRegex: choice.label instanceof RegExp,
       value: choice.value ?? null,
       index: choice.index ?? 1,
+      avoid: choice.avoid ? choice.avoid.source : null,
     });
 
     const selected = await this.page.evaluate(
@@ -179,6 +198,14 @@ export class AddCustomerPage extends BasePage {
           chosen = opts.filter(function(o){
             return re ? re.test(o.text) : o.text.trim().toLowerCase() === String(want.label).toLowerCase();
           })[0];
+        }
+        if (!chosen && want.avoid) {
+          var re2 = new RegExp(want.avoid, 'i');
+          var allowed = opts.filter(function(o){ return !re2.test(o.text.trim()); });
+          // Only honour the exclusion if something survives it; an empty list
+          // means the caller's assumption was wrong, and picking nothing at all
+          // fails in a much less obvious way than picking the avoided option.
+          if (allowed.length) opts = allowed;
         }
         if (!chosen) chosen = opts[Math.min(want.index - 1, opts.length - 1)];
         if (!chosen) return '';
@@ -265,13 +292,20 @@ export class AddCustomerPage extends BasePage {
 
     await this.fillInput(this.businessName, data.businessName);
     await this.fillInput(this.businessEmail, data.businessEmail);
-    await this.selectDropdown('CustomerBusinessType', {});
+    // The PAN is only valid relative to this choice, so the two are made
+    // together. Passing them independently is how "Invalid PAN Number" appears
+    // for a PAN that was correct a moment earlier under a different entity.
+    const businessTypeId = await this.selectBusinessType();
+    const pan = AddCustomerPage.panForBusinessType(businessTypeId, data.panNumber);
+    if (pan !== data.panNumber) {
+      this.logger.info(`PAN ${data.panNumber} -> ${pan} for business type ${businessTypeId}`);
+    }
 
     // PAN and the GST declaration are part of the draft the server validates on
     // every step, not just at submit — skipping them fails the branch-step save
     // with a bare "Could not save customer draft."
     await this.page.locator('#SaveCustomerModel_PanDOB').fill(data.panDob);
-    await this.fillInput(this.panNumber, data.panNumber);
+    await this.fillInput(this.panNumber, pan);
     await this.panNumber.blur();
     await this.page.waitForTimeout(1200);
     await this.dismissValidationDialogs();
@@ -324,6 +358,26 @@ export class AddCustomerPage extends BasePage {
       await ok.click().catch(() => undefined);
       await this.page.waitForTimeout(600);
     }
+
+    // The ids above do not cover everything: the draft confirmation is
+    // #success-mess-popup, one character away from the #succ-mess-popup listed
+    // there, and it went unnoticed for as long as the draft save was failing
+    // before it could appear. Rather than chase ids, anything still modal gets
+    // acknowledged by its own button — a dialog left open swallows the next
+    // click, and the failure surfaces as an unrelated button timing out.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const modal = this.page.locator('.modal.show').first();
+      if (!(await modal.isVisible().catch(() => false))) break;
+
+      const text = ((await modal.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+      if (text && !messages.includes(text)) messages.push(text);
+
+      const button = modal.locator('button:visible, .btn:visible').first();
+      if (!(await button.isVisible().catch(() => false))) break;
+      await button.click().catch(() => undefined);
+      await this.page.waitForTimeout(800);
+    }
+
     if (messages.length) this.logger.info(`Dismissed dialog(s): ${messages.join(' | ')}`);
     return messages;
   }
@@ -391,6 +445,8 @@ export class AddCustomerPage extends BasePage {
     this.logger.info('Save As Draft');
     await this.clickElement(this.saveAsDraftButton);
     await this.page.waitForTimeout(2500);
+    // The confirmation is modal and blocks Next until it is acknowledged.
+    await this.dismissValidationDialogs();
   }
 
   async goToAddressStep(): Promise<void> {
@@ -406,7 +462,7 @@ export class AddCustomerPage extends BasePage {
     // State, city and district auto-fill from the pin code.
     await expect(this.addressState).not.toHaveValue('', { timeout: 20_000 });
     await this.fillInput(this.businessAddress, data.businessAddress);
-    await this.selectDropdown('AddressProofType', {});
+    await this.selectDropdown('AddressProofType', { avoid: /^others$/i });
     await this.fillInput(this.page.locator('#AddressProofNo'), data.addressProofNumber);
     await this.uploadAddressProof(data.uploadFile);
   }
@@ -563,6 +619,120 @@ export class AddCustomerPage extends BasePage {
     const confirm = this.page.locator('#confirmation-ok-btn');
     if (await confirm.isVisible().catch(() => false)) await confirm.click();
     await this.page.waitForTimeout(3000);
+  }
+
+  /**
+   * The validation messages the wizard is currently showing.
+   *
+   * This exists because the wizard lets an invalid step through. It marks the
+   * step red, shows the message, and still allows Save As Draft, Next and
+   * Submit — so "the application was created" is not evidence the data was
+   * accepted, and a suite that only checks for a reference number will file bad
+   * records forever without noticing. Verified: an invalid PAN reached
+   * RawCustomerMaster with the field flagged on screen the whole way.
+   *
+   * Required-field asterisks share the .text-danger class with real messages,
+   * so they are filtered out by content — they are always exactly "*".
+   */
+  async validationErrors(): Promise<string[]> {
+    const texts = await this.page
+      .locator('.invalid-feedback:visible, .field-validation-error:visible, .text-danger:visible')
+      .allTextContents();
+
+    return [...new Set(
+      texts
+        .map(text => text.replace(/\s+/g, ' ').trim())
+        .filter(text => text.length > 0 && !/^\*+$/.test(text))
+    )];
+  }
+
+  /**
+   * Which fourth PAN character each Type Of Business accepts.
+   *
+   * Copied from PAN_ENTITY_RULES in the application's own /js/add_customer.js,
+   * because the rule is not discoverable from the form: the message it shows,
+   * "Invalid PAN Number", names neither the position nor the business type it is
+   * judging against. A PAN is valid or invalid only *relative to the selected
+   * Type Of Business* — the same number passes as one entity and fails as
+   * another — so the two fields can never be chosen independently.
+   *
+   * `null` means that entity imposes no restriction. An id absent from this map
+   * has no acceptable PAN at all, which is why selectBusinessType() refuses to
+   * pick one.
+   */
+  private static readonly PAN_ENTITY_RULES: Record<string, string[] | null> = {
+    1: ['F'],                                              // Partnership
+    2: ['P'],                                              // Sole Proprietorship
+    3: ['C'],                                              // Public/Private Ltd
+    4: ['P', 'C', 'F', 'T', 'L', 'J', 'G', 'B', 'A', 'H'], // Others
+    8: ['T', 'L', 'J', 'G', 'B', 'A', 'H'],                // Trust/Foundation
+    10: null,                                              // Govt Dept
+  };
+
+  /**
+   * The base PAN, correct for an individual.
+   *
+   * `P` in the fourth position, so it passes as Sole Proprietorship and as
+   * Others. panForBusinessType() rewrites that character when the selected
+   * entity demands a different one.
+   *
+   * Not made unique per run: PANs are shared across applications throughout this
+   * environment — one is on 21 of them — and CustomerMaster holds duplicates
+   * too, so the application does not treat a PAN as identifying anything.
+   */
+  static readonly TEST_PAN = 'ABCPE1234F';
+
+  /** The base PAN adjusted to whatever the selected business type will accept. */
+  static panForBusinessType(entityId: string, base: string = AddCustomerPage.TEST_PAN): string {
+    const allowed = AddCustomerPage.PAN_ENTITY_RULES[entityId];
+    if (allowed === null) return base;
+    if (!allowed) {
+      throw new Error(
+        `Business type ${entityId} has no PAN entity rule, so no PAN would be accepted.`
+      );
+    }
+    return allowed.includes(base.charAt(3))
+      ? base
+      : base.slice(0, 3) + allowed[0] + base.slice(4);
+  }
+
+  /**
+   * Picks a Type Of Business whose PAN rule is known.
+   *
+   * The first option in this dropdown is "Others", and taking it reveals a
+   * second required "Others (Describe)" field that then goes unfilled — so the
+   * default fallback is wrong here twice over.
+   */
+  private async selectBusinessType(): Promise<string> {
+    const available = await this.page
+      .locator('#CustomerBusinessType option')
+      .evaluateAll(options =>
+        options.map(o => (o as HTMLOptionElement).value).filter(v => v && v !== '0')
+      );
+
+    const preferred = ['2', '1', '3', '8'].find(id => available.includes(id));
+    if (!preferred) {
+      throw new Error(
+        `None of the business types offered (${available.join(', ')}) has a known PAN ` +
+          `entity rule, so no PAN would be accepted. Re-read PAN_ENTITY_RULES in ` +
+          `/js/add_customer.js — the application's list has changed.`
+      );
+    }
+
+    await this.selectDropdown('CustomerBusinessType', { value: preferred });
+    return preferred;
+  }
+
+  /** The reference id the success dialog reports back, or '' if it did not appear. */
+  async submittedReference(timeout = 30_000): Promise<string> {
+    const appeared = await this.submissionSuccess
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false);
+    if (!appeared) return '';
+
+    const text = ((await this.submissionSuccess.textContent()) ?? '').replace(/\s+/g, ' ');
+    return (text.match(/Reference ID\s*:?\s*([A-Za-z0-9-]+)/i)?.[1] ?? text.trim());
   }
 }
 

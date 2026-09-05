@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import * as path from 'path';
 import { test } from '../../src/fixtures/page.fixtures';
 import { epic, feature, story, severity, description, owner, tms } from 'allure-js-commons';
+import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
 
 /**
  * Customer Onboarding — the full Add Customer journey.
@@ -71,7 +72,7 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
 
     await addCustomerPage.fillBasicInformation({
       customerType: 'Fleet',
-      panNumber: 'ABCDE1234F',
+      panNumber: AddCustomerPage.TEST_PAN,
       panDob: '1990-01-01',
       businessName: `${tag} Automation Co`,
       businessEmail: `${tag.toLowerCase()}@example.com`,
@@ -79,7 +80,7 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
       customerEmail: `${tag.toLowerCase()}.cust@example.com`,
       customerMobile: testMobile(),
       otp: OTP,
-      idProofNumber: 'ABCDE1234F',
+      idProofNumber: AddCustomerPage.TEST_PAN,
       bankName: 'HDFC',
       bankAccountHolder: `${tag} Customer`,
       bankAccountNumber: '1234567890',
@@ -123,7 +124,7 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
 
     await addCustomerPage.fillBasicInformation({
       customerType: 'Fleet',
-      panNumber: 'ABCDE1234F',
+      panNumber: AddCustomerPage.TEST_PAN,
       panDob: '1990-01-01',
       businessName: `${tag} Draft Co`,
       businessEmail: `${tag.toLowerCase()}@example.com`,
@@ -131,7 +132,7 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
       customerEmail: `${tag.toLowerCase()}.d@example.com`,
       customerMobile: testMobile(),
       otp: OTP,
-      idProofNumber: 'ABCDE1234F',
+      idProofNumber: AddCustomerPage.TEST_PAN,
       bankName: 'HDFC',
       bankAccountHolder: `${tag} Draft`,
       bankAccountNumber: '1234567890',

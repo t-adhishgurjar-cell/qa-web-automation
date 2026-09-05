@@ -17,7 +17,20 @@ const AUTH_TESTS = /auth[\\/]login[\w-]*\.spec\.ts/;
 /** Database specs need no browser and belong to the `database` project. */
 const DB_TESTS = /database[\\/].*\.spec\.ts/;
 
-const BROWSER_TEST_IGNORE = [/.*\.setup\.ts/, /.*\.api\.spec\.ts/, AUTH_TESTS, DB_TESTS];
+/**
+ * User Management specs create real records and drive their own login, so they
+ * get one project rather than running once per browser — five browsers would
+ * mean five customer applications in the reviewer queue per run.
+ */
+const USER_MANAGEMENT_TESTS = /user-management[\\/].*\.spec\.ts/;
+
+const BROWSER_TEST_IGNORE = [
+  /.*\.setup\.ts/,
+  /.*\.api\.spec\.ts/,
+  AUTH_TESTS,
+  DB_TESTS,
+  USER_MANAGEMENT_TESTS,
+];
 
 export default defineConfig({
   // Test directory
@@ -168,6 +181,14 @@ export default defineConfig({
     {
       name: 'database',
       testMatch: DB_TESTS,
+    },
+
+    // User Management — drives login itself and needs the database alongside the
+    // browser, so it inherits neither storageState nor the setup project.
+    {
+      name: 'user-management',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: USER_MANAGEMENT_TESTS,
     },
   ],
 });
