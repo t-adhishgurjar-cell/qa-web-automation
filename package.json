@@ -23,7 +23,9 @@
     "typecheck": "tsc --noEmit",
     "clean": "rimraf test-results playwright-report allure-results allure-report",
     "allure:serve": "allure serve allure-results --name \"FleetPlus Login\"",
-    "visual:report": "tsx scripts/build-visual-report.ts"
+    "visual:report": "npx tsx scripts/build-visual-report.ts",
+    "signoff": "playwright test --project=user-management --grep \"Matrix\" && npm run signoff:report",
+    "signoff:report": "npx tsx scripts/build-traceability.ts && npx tsx scripts/build-visual-report.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",

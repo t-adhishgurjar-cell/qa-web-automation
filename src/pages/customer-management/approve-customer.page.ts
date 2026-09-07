@@ -127,7 +127,18 @@ export class ApproveCustomerPage extends BasePage {
     }
 
     await this.clickElement(this.approvalLink(reference));
-    await this.basicInformationTab.waitFor({ state: 'visible', timeout: 30_000 });
+
+    // Readiness is "the decision controls are here", not "the Fleet tab strip is
+    // here". An OD review renders as a single page with #BasicInformationTab
+    // present but hidden, so waiting on that tab alone times out on a page that
+    // is in fact fully loaded and approvable.
+    // Visibility is part of the selector rather than a state to wait for: with
+    // .first() over a plain id union, the hidden tab wins the race by DOM order
+    // and the wait times out against a page that already has its controls up.
+    await this.page
+      .locator('#BasicInformationTab:visible, #Remarks:visible, #btnApprove:visible')
+      .first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
   }
 
   /**
@@ -155,7 +166,16 @@ export class ApproveCustomerPage extends BasePage {
       reentry.bankAccountNumber
     );
 
+    // Fleet spreads the application across tabs and Approve lives on the last
+    // one, so they have to be walked. An OD review is a single page that still
+    // carries the same tab buttons, hidden and class="nav-link disable" — so a
+    // blind walk waits out the timeout on a page that is already showing
+    // everything it has. Only tabs the page actually offers are visited.
     for (const tab of [this.addressTab, this.branchMeetingTab]) {
+      if (!(await tab.isVisible().catch(() => false))) {
+        this.logger.info(`${tab} is not offered on this review — single-page layout.`);
+        continue;
+      }
       await this.clickElement(tab);
       await this.page.waitForTimeout(2_000);
     }

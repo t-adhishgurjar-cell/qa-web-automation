@@ -87,9 +87,11 @@ export default defineConfig({
     // Navigation timeout
     navigationTimeout: 60_000,
 
-    // Headed locally so a run can be watched; headless on CI, or on demand via
-    // HEADLESS=true for a long local run you do not want stealing focus.
-    headless: !!process.env.CI || process.env.HEADLESS === 'true',
+    // Headless everywhere. A full matrix run is half an hour of browser windows
+    // taking focus, and the evidence the suite is judged on is the screenshots
+    // and database reads it captures, not the live window. Set HEADED=true to
+    // watch a run while debugging.
+    headless: process.env.HEADED !== 'true',
 
     // Viewport
     viewport: { width: 1280, height: 720 },

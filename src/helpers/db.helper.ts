@@ -99,7 +99,11 @@ export class DbHelper {
         encrypt,
         trustServerCertificate: config.trustServerCertificate,
       },
-      pool: { max: 4, min: 0, idleTimeoutMillis: 30_000 },
+      // A full matrix run snapshots hundreds of mobiles across 50-odd tests, and
+      // four connections with the default acquire timeout ran dry near the end —
+      // reported by tarn as "operation timed out for an unknown reason", which
+      // names neither the query nor the caller and reads like a database fault.
+      pool: { max: 10, min: 0, idleTimeoutMillis: 30_000, acquireTimeoutMillis: 60_000 },
       connectionTimeout: 20_000,
       requestTimeout: 30_000,
     }).connect();

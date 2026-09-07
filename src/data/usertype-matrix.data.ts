@@ -1,5 +1,6 @@
 import { MobileSnapshot, BLOCKING_CUSTOMER_STATUSES, OD_CUSTOMER_TYPE_CODE, BLOCKS_MOBILE_REUSE }
   from '../helpers/matrix-db.helper';
+import { customerTypeSql, existingUserSql, mixedCustomerSql } from '../helpers/fixture-finder';
 
 /**
  * The UserType × CustomerType matrix, as data.
@@ -17,15 +18,20 @@ import { MobileSnapshot, BLOCKING_CUSTOMER_STATUSES, OD_CUSTOMER_TYPE_CODE, BLOC
  * without anyone having to remember why it was red.
  *
  * ── Fixtures ──────────────────────────────────────────────────────────────
- * Six of the nine columns are preconditions on data that must already exist:
- * "this mobile is an approved Fleet customer" cannot be created on demand,
- * because onboarding as a maker only reaches the approval queue. So each column
- * names real mobiles, found by query and verified to arm exactly one check —
- * no second customer type, no blocking user, no active retail outlet.
+ * Seven of the nine columns are preconditions on data that must already exist:
+ * "this mobile is an approved Fleet customer", "this mobile already logs in as
+ * an RO admin". Rather than list such mobiles, each column carries the SQL that
+ * finds one, and every candidate is then checked against the column's own
+ * arms() predicate before a test will use it.
  *
- * They are live data and will drift. Every one is re-validated against the
- * database at run time, and a test whose fixture no longer holds skips saying
- * so rather than failing as though the application were at fault.
+ * Lists were tried first and rot. A fixture gets consumed or edited, and the
+ * test goes on passing while proving nothing at all — the worst failure a suite
+ * can have, because it is invisible. A query cannot go stale in that way.
+ *
+ * Only one column consumes what it uses. Seven expect a refusal, so nothing is
+ * written and their fixtures stay valid indefinitely; "No existing record" mints
+ * a fresh number. Only "OD only" expects success, and creating that user retires
+ * the mobile from the column for good.
  */
 
 export type Verdict = 'allowed' | 'blocked';
@@ -43,14 +49,17 @@ export interface MatrixColumn {
   /** What it means, for the report. */
   precondition: string;
   check: Check;
-  /** Comma-separated override, for when the fixtures below go stale. */
+  /** Comma-separated override, when a specific mobile must be used. */
   envVar: string;
   /**
-   * Known-good mobiles. More than one because a cell that expects success
-   * *creates a user on the fixture*, which arms the Users check and makes that
-   * mobile useless for this column ever after. Each user type takes its own.
+   * SQL returning candidate mobiles, newest first, as a `mobile` column.
+   *
+   * The definition of the column, not a cached answer to it. Hardcoded lists
+   * were tried first and rot: a fixture gets consumed or edited, and the test
+   * goes on passing while proving nothing. Absent for columns that need no
+   * existing data.
    */
-  fixtures: string[];
+  discoverSql?: string;
   /** True when the snapshot really is what this column claims. */
   arms(snapshot: MobileSnapshot): { ok: boolean; why: string };
 }
@@ -130,7 +139,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'The mobile is not used anywhere — no customer, no user, no retail outlet.',
     check: 'none',
     envVar: 'MATRIX_FIXTURES_NO_RECORD',
-    fixtures: [], // minted fresh; a fixed one works exactly once
+    // Nothing to discover: the test mints a number no run has touched.
     arms: s => {
       if (s.customers.length) return { ok: false, why: 'already a customer' };
       if (s.users.length) return { ok: false, why: 'already holds a user' };
@@ -144,7 +153,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'An OD customer and nothing else — the one customer type the procedure exempts.',
     check: 'none',
     envVar: 'MATRIX_FIXTURES_OD_ONLY',
-    fixtures: ['7404436222', '6000000015', '6395228914'],
+    discoverSql: customerTypeSql(1004),
     arms: customerColumn(1004, true),
   },
   {
@@ -153,7 +162,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'An approved Fleet customer, and no other customer type.',
     check: 'CustomerMaster',
     envVar: 'MATRIX_FIXTURES_FLEET',
-    fixtures: ['6262744143', '6281774026', '6300835439'],
+    discoverSql: customerTypeSql(1001),
     arms: customerColumn(1001, true),
   },
   {
@@ -162,7 +171,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'An approved Non-Fleet customer, and no other customer type.',
     check: 'CustomerMaster',
     envVar: 'MATRIX_FIXTURES_NON_FLEET',
-    fixtures: ['6000000013', '6000000014', '6000000053'],
+    discoverSql: customerTypeSql(1002),
     arms: customerColumn(1002, true),
   },
   {
@@ -171,7 +180,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'An approved Corporate customer, and no other customer type.',
     check: 'CustomerMaster',
     envVar: 'MATRIX_FIXTURES_CORPORATE',
-    fixtures: ['6600000001', '6700799700', '7000000114'],
+    discoverSql: customerTypeSql(1006),
     arms: customerColumn(1006, true),
   },
   {
@@ -182,7 +191,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
       'the OD exemption is for OD-*only*, so one non-OD record should still block.',
     check: 'CustomerMaster',
     envVar: 'MATRIX_FIXTURES_MIXED',
-    fixtures: ['7500026875', '7000000161', '9870000015'],
+    discoverSql: mixedCustomerSql(),
     arms: s => {
       const approved = approvedCustomers(s);
       const od = approved.filter(c => c.customerTypeCode === OD_CUSTOMER_TYPE_CODE);
@@ -201,7 +210,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'The mobile already logs in as an RO Admin.',
     check: 'Users',
     envVar: 'MATRIX_FIXTURES_RO_USER',
-    fixtures: ['9870000009', '8099999991'],
+    discoverSql: existingUserSql(['RO']),
     arms: usersColumn(['RO']),
   },
   {
@@ -210,7 +219,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'The mobile already logs in as an RO User.',
     check: 'Users',
     envVar: 'MATRIX_FIXTURES_OTHER_RO_USER',
-    fixtures: ['9999100700', '9876546789', '9999301999'],
+    discoverSql: existingUserSql(['OTHER_RO']),
     arms: usersColumn(['OTHER_RO']),
   },
   {
@@ -219,7 +228,7 @@ export const MATRIX_COLUMNS: MatrixColumn[] = [
     precondition: 'The mobile already logs in as Nayara staff.',
     check: 'Users',
     envVar: 'MATRIX_FIXTURES_ADMIN_USER',
-    fixtures: ['9529506010', '9529323050', '9528909470'],
+    discoverSql: existingUserSql(NAYARA_CODES),
     arms: usersColumn(NAYARA_CODES),
   },
 ];
@@ -236,25 +245,33 @@ export interface MatrixRow {
   viaAddUser: boolean;
 }
 
+/**
+ * The thirteen user types, in the workbook's own order.
+ *
+ * The order is load-bearing, not cosmetic: cell ids are derived from position,
+ * so a row moved here silently renumbers every case after it. Kept identical to
+ * the Matrix View sheet, and asserted by the traceability report.
+ */
 export const MATRIX_ROWS: MatrixRow[] = [
   { code: 'FP_ADMIN', name: 'Admin', category: 'Nayara', route: 'Add User', viaAddUser: true },
   { code: 'HO_ADMIN', name: 'HO Admin', category: 'Nayara', route: 'Add User', viaAddUser: true },
   { code: 'HO', name: 'HO', category: 'Nayara', route: 'Add User', viaAddUser: true },
-  { code: 'OTHER_NAYARA', name: 'Other (Nayara)', category: 'Nayara', route: 'Add User', viaAddUser: true },
-  { code: 'OTHER_NON', name: 'Other (Non Nayara)', category: 'Other', route: 'Add User', viaAddUser: true },
-
   { code: 'REGION_ADMIN', name: 'Region Admin', category: 'Nayara', route: 'Office API', viaAddUser: false },
   { code: 'STATE_ADMIN', name: 'State Admin', category: 'Nayara', route: 'Office API', viaAddUser: false },
   { code: 'DIVISION_ADMIN', name: 'Division Admin', category: 'Nayara', route: 'Office API', viaAddUser: false },
   { code: 'TERRITORY_ADMIN', name: 'Territory Admin (TSM)', category: 'Nayara', route: 'RO onboarding API', viaAddUser: false },
-  { code: 'RO', name: 'RO Admin', category: 'RO', route: 'RO onboarding API', viaAddUser: false },
-  { code: 'OTHER_RO', name: 'RO User', category: 'RO', route: 'RO onboarding API (unconfirmed)', viaAddUser: false },
+  { code: 'OTHER_NAYARA', name: 'Other (Nayara)', category: 'Nayara', route: 'Add User', viaAddUser: true },
+  { code: 'OTHER_NON', name: 'Other (Non Nayara)', category: 'Other', route: 'Add User', viaAddUser: true },
 
-  // The workbook writes these two as CUSTOMER_PARENT_USER / CUSTOMER_BRANCH_USER.
-  // The second is a display name; the code is CUSTOMER_CHILD_USER. Both are
-  // created by a Customer Admin from their own portal, not by Add User.
+  // The workbook writes the next two as CUSTOMER_PARENT_USER and
+  // CUSTOMER_BRANCH_USER. The second is a display name; the code is
+  // CUSTOMER_CHILD_USER. Both are created by a Customer Admin from their own
+  // portal, not by Add User.
   { code: 'CUSTOMER_PARENT_USER', name: 'Customer Parent User', category: 'Customer', route: "Customer Admin's portal", viaAddUser: false },
   { code: 'CUSTOMER_CHILD_USER', name: 'Customer Branch User', category: 'Customer', route: "Customer Admin's portal", viaAddUser: false },
+
+  { code: 'RO', name: 'RO Admin', category: 'RO', route: 'RO onboarding API', viaAddUser: false },
+  { code: 'OTHER_RO', name: 'RO User', category: 'RO', route: 'RO onboarding API (unconfirmed)', viaAddUser: false },
 ];
 
 // ── The verdicts ────────────────────────────────────────────────────────────
@@ -284,6 +301,16 @@ export function codeVerdict(_row: MatrixRow, column: MatrixColumn): Verdict {
 }
 
 export interface Cell {
+  /**
+   * The workbook's own id for this cell.
+   *
+   * The workbook numbers its 117 combinations sequentially, row by row and
+   * column by column within each row, which is exactly the order MATRIX_ROWS and
+   * MATRIX_COLUMNS are declared in. Derived rather than transcribed, so the two
+   * cannot drift apart — but it does mean reordering either list silently
+   * renumbers everything, which is why the traceability report asserts the count.
+   */
+  tcId: string;
   row: MatrixRow;
   column: MatrixColumn;
   spec: Verdict;
@@ -295,7 +322,14 @@ export interface Cell {
 export function cell(row: MatrixRow, column: MatrixColumn): Cell {
   const spec = specVerdict(row, column);
   const code = codeVerdict(row, column);
-  return { row, column, spec, code, disputed: spec !== code };
+  const index =
+    MATRIX_ROWS.findIndex(r => r.code === row.code) * MATRIX_COLUMNS.length +
+    MATRIX_COLUMNS.findIndex(c => c.key === column.key) + 1;
+
+  return {
+    tcId: `TC-UAM-${String(index).padStart(3, '0')}`,
+    row, column, spec, code, disputed: spec !== code,
+  };
 }
 
 /** Every cell reachable through the Add User screen — 5 types × 9 columns. */
@@ -303,21 +337,4 @@ export function addUserCells(): Cell[] {
   return MATRIX_ROWS.filter(r => r.viaAddUser).flatMap(row =>
     MATRIX_COLUMNS.map(column => cell(row, column))
   );
-}
-
-/**
- * The mobiles to try for a cell, most preferred first.
- *
- * Each user type is given a different starting point in the pool, because a
- * cell that expects success consumes its fixture: creating the user arms the
- * Users check, and the mobile stops representing this column.
- */
-export function fixturesFor(column: MatrixColumn, rowIndex: number): string[] {
-  const override = process.env[column.envVar]?.trim();
-  const pool = override
-    ? override.split(',').map(m => m.trim()).filter(Boolean)
-    : column.fixtures;
-
-  if (!pool.length) return [];
-  return pool.map((_, i) => pool[(rowIndex + i) % pool.length]);
 }

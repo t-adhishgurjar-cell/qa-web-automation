@@ -5,9 +5,8 @@ import {
 } from 'allure-js-commons';
 import { MatrixDb, MobileSnapshot } from '../../src/helpers/matrix-db.helper';
 import { Evidence } from '../../src/helpers/evidence.helper';
-import {
-  Cell, addUserCells, fixturesFor, MATRIX_ROWS,
-} from '../../src/data/usertype-matrix.data';
+import { Cell, addUserCells, MATRIX_ROWS } from '../../src/data/usertype-matrix.data';
+import { FixtureFinder } from '../../src/helpers/fixture-finder';
 import { SelectableUserType } from '../../src/pages/user-management/add-user.page';
 
 /**
@@ -64,11 +63,12 @@ function freshMobile(): string {
 }
 
 /**
- * The first fixture whose precondition still holds.
+ * A mobile that genuinely arms this cell's column, or the reason none does.
  *
- * Tries each in turn rather than trusting the first: fixtures are consumed by
- * the cells that expect success, and a stale one is the likeliest reason for a
- * confusing result.
+ * The candidates come from the database rather than a list in the repository,
+ * and each is checked against the column's own predicate before use. Both halves
+ * matter: the query finds what exists today, and the check confirms it means
+ * what the column claims.
  */
 async function resolveFixture(
   cell: Cell,
@@ -83,19 +83,14 @@ async function resolveFixture(
       : { rejected: `minted ${mobile} but it is not clean: ${verdict.why}` };
   }
 
-  const tried: string[] = [];
-  for (const mobile of fixturesFor(cell.column, rowIndex)) {
-    const before = await MatrixDb.snapshot(mobile);
-    const verdict = cell.column.arms(before);
-    if (verdict.ok) return { mobile, before, why: verdict.why };
-    tried.push(`  ${mobile}: ${verdict.why}`);
-  }
+  // Offset per user type so five tests do not compete for one mobile, and so
+  // the one consuming column spreads across the pool instead of the head of it.
+  const search = await FixtureFinder.find(cell.column, 1, rowIndex);
+  const [candidate] = search.found;
 
-  return {
-    rejected:
-      `No fixture still arms "${cell.column.label}".\n${tried.join('\n')}\n\n` +
-      `Supply fresh mobiles with ${cell.column.envVar}=<comma,separated>.`,
-  };
+  return candidate
+    ? { mobile: candidate.mobile, before: candidate.snapshot, why: candidate.why }
+    : { rejected: FixtureFinder.explain(cell.column, search) };
 }
 
 test.use({ storageState: { cookies: [], origins: [] } });
@@ -126,6 +121,7 @@ test.describe('Matrix — Add User', () => {
           await feature('Add User');
           await story(`UserType × CustomerType — ${row.code}`);
           await owner('QA Team');
+          await tms(cell.tcId);
           await severity(cell.column.check === 'none' ? 'critical' : 'blocker');
           await parameter('User type', row.code);
           await parameter('Existing state', cell.column.label);
@@ -153,6 +149,7 @@ test.describe('Matrix — Add User', () => {
           );
 
           const ev = new Evidence(`${row.code} × ${cell.column.label}`, `matrix-${row.code}-${cell.column.key}`.toLowerCase());
+          ev.fact('Test case', cell.tcId);
           ev.fact('User type', row.code);
           ev.fact('Existing state', cell.column.label);
           ev.fact('Workbook expects', cell.spec);
@@ -281,4 +278,57 @@ test.describe('Matrix — Add User', () => {
       }
     });
   }
+
+  /**
+   * Not a matrix cell — the bound on how much of the matrix this screen can
+   * cover at all.
+   *
+   * The workbook has 13 user-type rows; Add User offers 5. Recorded as a test so
+   * the limit is visible in the report and fails loudly if the dropdown ever
+   * changes, rather than living in a comment nobody reads.
+   */
+  test(
+    'the Add User screen offers only five of the thirteen user types',
+    { tag: ['@regression', '@user-management', '@matrix'] },
+    async ({ addUserPage, page }) => {
+      test.setTimeout(180_000);
+
+      await epic('User Management');
+      await feature('Add User');
+      await story('Reachable user types');
+      await owner('QA Team');
+      await severity('normal');
+      await description(
+        'Scope check, not a defect. 72 of the workbook\'s 117 cells are not ' +
+          'reachable from this screen and must be covered through the Office API, ' +
+          'the RO onboarding API, or a Customer Admin\'s portal.'
+      );
+
+      const ev = new Evidence('Reachable user types', 'matrix-scope-check');
+      ev.fact('Types in the workbook', '13');
+      ev.fact('Types this screen offers', '5');
+      let status: 'passed' | 'failed' | 'skipped' = 'passed';
+
+      try {
+        await addUserPage.open();
+        const offered = await addUserPage.offeredUserTypes();
+        await ev.ui(page, 'The Add User screen', 'The user-type dropdown bounds what this entry point can test.');
+        await ev.note(
+          'User types offered',
+          'Read from the dropdown. CUSTOMER_ADMIN and BRANCH_ADMIN — 83% of all ' +
+            'users in the database — are absent, so they are created elsewhere.',
+          offered.join('\n')
+        );
+
+        expect(offered.sort()).toEqual(
+          ['FP_ADMIN', 'HO', 'HO_ADMIN', 'OTHER_NAYARA', 'OTHER_NON'].sort()
+        );
+      } catch (error) {
+        status = 'failed';
+        throw error;
+      } finally {
+        ev.finish(status);
+      }
+    }
+  );
 });
