@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import { test } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/session.fixtures';
 import {
   description, epic, feature, owner, parameter, severity, story, tms,
 } from 'allure-js-commons';
@@ -34,9 +34,6 @@ import { DbHelper } from '../../src/helpers/db.helper';
  * tests are the ones that say so. Either way the workbook expects them not to
  * block, so they are written to that expectation.
  */
-
-const USER = process.env.FP_ADMIN_USER ?? 'loadtest_006';
-const PASS = process.env.FP_ADMIN_PASS ?? 'Nayara@1';
 
 const column = (key: string): MatrixColumn => {
   const found = MATRIX_COLUMNS.find(c => c.key === key);
@@ -106,16 +103,9 @@ const OD_ACTIVE_FLEET_INACTIVE_SQL = `
                               'DIVISION_ADMIN','TERRITORY_ADMIN','OTHER_NAYARA','OTHER_NON','RO','OTHER_RO'))
    GROUP BY o.MobileNo`;
 
-test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Matrix — edge cases', () => {
   test.describe.configure({ mode: 'default' });
-
-  test.beforeEach(async ({ loginPage, dashboardPage }) => {
-    await loginPage.navigate();
-    await loginPage.login(USER, PASS);
-    await dashboardPage.assertDashboardLoaded();
-  });
 
   // ── Input handling ────────────────────────────────────────────────────────
 

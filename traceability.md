@@ -1,6 +1,6 @@
 # Traceability — FleetPlus UserType × CustomerType matrix
 
-Generated 2026-09-07 10:40:12 UTC
+Generated 2026-09-08 04:12:08 UTC
 from `FleetPlus_UserType_Matrix_TestCases.xlsx` and the results of the last run.
 
 ## Summary
@@ -16,6 +16,12 @@ from `FleetPlus_UserType_Matrix_TestCases.xlsx` and the results of the last run.
 | Not covered | 87 |
 
 > **Read the pass column carefully.** 6 of the automated cases are marked as expected failures: the application disagrees with the specification, the test asserts the behaviour that actually ships, and so the run stays green. They are confirmed defects, not clean passes. Each is flagged below and listed in full under *Known defects*.
+
+## What this run does not vary
+
+Every case here was executed as **loadtest_006** (user 4108, FP_ADMIN, category Nayara). The suite varies the user type being created and the state of the target mobile, holding the operator constant — so the results are the rules as enforced *for an FP_ADMIN maker*. Whether HO or HO Admin have narrower rights is a separate axis that is never exercised. The procedure does not branch on the caller, so no difference is expected, but that is read from the code rather than measured.
+
+The same account acted as both maker and checker during customer onboarding, which QA permits. Four-eyes separation is therefore not tested by anything here.
 
 ## Automated
 

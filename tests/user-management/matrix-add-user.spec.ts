@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import { test } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/session.fixtures';
 import {
   description, epic, feature, owner, parameter, severity, story, tms,
 } from 'allure-js-commons';
@@ -48,9 +48,6 @@ import { SelectableUserType } from '../../src/pages/user-management/add-user.pag
  * assert. Fixture mobiles for the allowed columns are consumed by being used.
  */
 
-const USER = process.env.FP_ADMIN_USER ?? 'loadtest_006';
-const PASS = process.env.FP_ADMIN_PASS ?? 'Nayara@1';
-
 const ADD_USER_ROWS = MATRIX_ROWS.filter(r => r.viaAddUser);
 
 function runTag(): string {
@@ -93,18 +90,11 @@ async function resolveFixture(
     : { rejected: FixtureFinder.explain(cell.column, search) };
 }
 
-test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Matrix — Add User', () => {
   // Not serial: each cell reads its own fixture and shares no state, so one
   // stale precondition must not hide the other forty-four.
   test.describe.configure({ mode: 'default' });
-
-  test.beforeEach(async ({ loginPage, dashboardPage }) => {
-    await loginPage.navigate();
-    await loginPage.login(USER, PASS);
-    await dashboardPage.assertDashboardLoaded();
-  });
 
   for (const [rowIndex, row] of ADD_USER_ROWS.entries()) {
     test.describe(`${row.code} (${row.name})`, () => {

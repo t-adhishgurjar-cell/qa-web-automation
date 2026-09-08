@@ -244,6 +244,20 @@ function main(): void {
           '',
         ]
       : []),
+    '## What this run does not vary',
+    '',
+    'Every case here was executed as **loadtest_006** (user 4108, FP_ADMIN, ' +
+      'category Nayara). The suite varies the user type being created and the ' +
+      "state of the target mobile, holding the operator constant — so the " +
+      'results are the rules as enforced *for an FP_ADMIN maker*. Whether HO or ' +
+      'HO Admin have narrower rights is a separate axis that is never exercised. ' +
+      'The procedure does not branch on the caller, so no difference is ' +
+      'expected, but that is read from the code rather than measured.',
+    '',
+    'The same account acted as both maker and checker during customer ' +
+      'onboarding, which QA permits. Four-eyes separation is therefore not ' +
+      'tested by anything here.',
+    '',
     '## Automated',
     '',
     '| TC | Outcome | Scenario |',
