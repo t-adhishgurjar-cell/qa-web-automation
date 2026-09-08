@@ -188,7 +188,7 @@ export class AddUserPage extends BasePage {
       await this.clickElement(this.addButton);
       await this.page.waitForTimeout(5_000);
 
-      let wentToLocationMapping = /UserLocationMapping/i.test(this.page.url());
+      const wentToLocationMapping = /UserLocationMapping/i.test(this.page.url());
       if (wentToLocationMapping) {
         this.logger.info('Step one handed off to User Location Mapping; completing step two');
         await this.completeLocationMapping();

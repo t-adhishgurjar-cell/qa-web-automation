@@ -5,11 +5,13 @@ import {
 } from 'allure-js-commons';
 import {
   MatrixDb, MobileSnapshot, BLOCKING_CUSTOMER_STATUSES, BLOCKS_MOBILE_REUSE,
+  blockingTypesSqlList,
 } from '../../src/helpers/matrix-db.helper';
 import { Evidence } from '../../src/helpers/evidence.helper';
-import { FixtureFinder, existingUserSql } from '../../src/helpers/fixture-finder';
+import { FixtureFinder } from '../../src/helpers/fixture-finder';
 import { MATRIX_COLUMNS, MatrixColumn } from '../../src/data/usertype-matrix.data';
 import { DbHelper } from '../../src/helpers/db.helper';
+import { runTag, freshMobile } from '../../src/helpers/test-identity';
 
 /**
  * Matrix edge cases — the seven from the workbook reachable through Add User.
@@ -41,14 +43,6 @@ const column = (key: string): MatrixColumn => {
   return found;
 };
 
-function runTag(): string {
-  return `AUTO${String(Date.now()).slice(-8)}`;
-}
-
-function freshMobile(): string {
-  return `9${String(Date.now()).slice(-9)}`;
-}
-
 /** A mobile whose only customer records are switched off — status 104, or StatusFlag 0. */
 const INACTIVE_CUSTOMER_SQL = `
   WITH candidate AS (
@@ -66,8 +60,7 @@ const INACTIVE_CUSTOMER_SQL = `
            SELECT 1 FROM dbo.Users u
              JOIN dbo.UserTypesMaster ut ON ut.Id = u.UserTypeId
             WHERE u.MobileNumber = c.MobileNo
-              AND ut.Code IN ('FP_ADMIN','HO_ADMIN','HO','REGION_ADMIN','STATE_ADMIN',
-                              'DIVISION_ADMIN','TERRITORY_ADMIN','OTHER_NAYARA','OTHER_NON','RO','OTHER_RO'))
+              AND ut.Code IN (${blockingTypesSqlList()}))
    GROUP BY c.MobileNo`;
 
 /**
@@ -99,8 +92,7 @@ const OD_ACTIVE_FLEET_INACTIVE_SQL = `
            SELECT 1 FROM dbo.Users u
              JOIN dbo.UserTypesMaster ut ON ut.Id = u.UserTypeId
             WHERE u.MobileNumber = o.MobileNo
-              AND ut.Code IN ('FP_ADMIN','HO_ADMIN','HO','REGION_ADMIN','STATE_ADMIN',
-                              'DIVISION_ADMIN','TERRITORY_ADMIN','OTHER_NAYARA','OTHER_NON','RO','OTHER_RO'))
+              AND ut.Code IN (${blockingTypesSqlList()}))
    GROUP BY o.MobileNo`;
 
 
@@ -140,7 +132,10 @@ test.describe('Matrix — edge cases', () => {
     test(
       `${id} — ${label}`,
       { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
-      async ({ addUserPage, page, db }) => {
+      // `db` is requested but never referenced: asking for it is what opens
+      // the worker's connection pool before the test needs it. Named with an
+      // underscore so that intent is visible rather than looking like a leftover.
+      async ({ addUserPage, page, db: _db }) => {
         test.setTimeout(180_000);
 
         await epic('User Management');
@@ -278,7 +273,10 @@ test.describe('Matrix — edge cases', () => {
     test(
       `${id} — ${label}`,
       { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
-      async ({ addUserPage, page, db }) => {
+      // `db` is requested but never referenced: asking for it is what opens
+      // the worker's connection pool before the test needs it. Named with an
+      // underscore so that intent is visible rather than looking like a leftover.
+      async ({ addUserPage, page, db: _db }) => {
         test.setTimeout(180_000);
 
         // The workbook says allowed, the procedure blocks, and the procedure is
@@ -438,7 +436,10 @@ test.describe('Matrix — edge cases', () => {
     test(
       `${id} — ${label}`,
       { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
-      async ({ addUserPage, page, db }) => {
+      // `db` is requested but never referenced: asking for it is what opens
+      // the worker's connection pool before the test needs it. Named with an
+      // underscore so that intent is visible rather than looking like a leftover.
+      async ({ addUserPage, page, db: _db }) => {
         test.setTimeout(180_000);
 
         await epic('User Management');

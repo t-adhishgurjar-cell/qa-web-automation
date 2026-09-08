@@ -1,10 +1,11 @@
 import * as path from 'path';
-import { test } from '../../src/fixtures/page.fixtures';
-import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
-import { ConsentPage } from '../../src/pages/customer-management/consent.page';
-import { ApproveCustomerPage } from '../../src/pages/customer-management/approve-customer.page';
-import { MatrixDb } from '../../src/helpers/matrix-db.helper';
-import { DbHelper } from '../../src/helpers/db.helper';
+import { test } from '../src/fixtures/page.fixtures';
+import { AddCustomerPage } from '../src/pages/customer-management/add-customer.page';
+import { ConsentPage } from '../src/pages/customer-management/consent.page';
+import { ApproveCustomerPage } from '../src/pages/customer-management/approve-customer.page';
+import { MatrixDb } from '../src/helpers/matrix-db.helper';
+import { DbHelper } from '../src/helpers/db.helper';
+import { CUSTOMER_ADMIN, TEST_OTP } from '../src/config/accounts';
 
 /**
  * Manufactures the state EC-008 needs, because no mobile in QA has it.
@@ -26,16 +27,18 @@ import { DbHelper } from '../../src/helpers/db.helper';
  *   3. approve it, which is what makes the customer Active
  * and then reports the resulting shape so EC-008 can be pointed at it.
  *
- * Not part of the signoff suite — it writes real records. Run deliberately:
- *   ENV=qa npx playwright test --project=user-management --grep "EC-008 fixture"
+ * Not part of the signoff suite. It lives under tools/ rather than tests/
+ * because it WRITES REAL RECORDS into the environment — a customer that stays
+ * there afterwards — and a data-creating script sitting in the test tree is one
+ * broad --grep away from running unintentionally. Run deliberately:
+ *   TOOLS=true ENV=qa npx playwright test --project=tools
  */
 
 test.use({ storageState: { cookies: [], origins: [] } });
 test.describe.configure({ mode: 'serial' });
 
-const USER = process.env.CUSTOMER_ADMIN_USER ?? 'loadtest_006';
-const PASS = process.env.CUSTOMER_ADMIN_PASS ?? 'Nayara@1';
-const OTP = process.env.TEST_OTP ?? '123456';
+const { username: USER, password: PASS } = CUSTOMER_ADMIN;
+const OTP = TEST_OTP;
 const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
 
 /**

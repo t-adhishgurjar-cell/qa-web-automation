@@ -7,6 +7,7 @@ import { MatrixDb, MobileSnapshot } from '../../src/helpers/matrix-db.helper';
 import { Evidence } from '../../src/helpers/evidence.helper';
 import { Cell, addUserCells, MATRIX_ROWS } from '../../src/data/usertype-matrix.data';
 import { FixtureFinder } from '../../src/helpers/fixture-finder';
+import { runTag, freshMobile } from '../../src/helpers/test-identity';
 import { SelectableUserType } from '../../src/pages/user-management/add-user.page';
 
 /**
@@ -50,15 +51,7 @@ import { SelectableUserType } from '../../src/pages/user-management/add-user.pag
 
 const ADD_USER_ROWS = MATRIX_ROWS.filter(r => r.viaAddUser);
 
-function runTag(): string {
-  return `AUTO${String(Date.now()).slice(-8)}`;
-}
-
 /** A mobile no previous run has touched, for the "No existing record" column. */
-function freshMobile(): string {
-  return `9${String(Date.now()).slice(-9)}`;
-}
-
 /**
  * A mobile that genuinely arms this cell's column, or the reason none does.
  *
@@ -104,7 +97,10 @@ test.describe('Matrix — Add User', () => {
           `${row.code} on a mobile that is "${cell.column.label}" ` +
           `-> ${expected === 'allowed' ? 'created' : 'refused'}`;
 
-        test(title, { tag: ['@regression', '@user-management', '@matrix'] }, async ({ addUserPage, page, db }) => {
+        test(title, { tag: ['@regression', '@user-management', '@matrix'] }, // `db` is requested but never referenced: asking for it is what opens
+      // the worker's connection pool before the test needs it. Named with an
+      // underscore so that intent is visible rather than looking like a leftover.
+      async ({ addUserPage, page, db: _db }) => {
           test.setTimeout(240_000);
 
           await epic('User Management');

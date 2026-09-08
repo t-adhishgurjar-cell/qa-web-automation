@@ -132,6 +132,19 @@ export const BLOCKS_MOBILE_REUSE: readonly string[] = [
   'DIVISION_ADMIN', 'TERRITORY_ADMIN', 'OTHER_NAYARA', 'OTHER_NON', 'RO', 'OTHER_RO',
 ];
 
+/**
+ * The same list, quoted for an IN clause.
+ *
+ * The list previously existed three times — this array, a SQL string in the
+ * fixture finder, and two inline copies in the edge-case spec. Nothing compared
+ * them, so a type added to one and not the others would have left the tests and
+ * the fixture discovery disagreeing about what blocks, with every test still
+ * green. Deriving the SQL from the array makes that drift impossible.
+ */
+export function blockingTypesSqlList(): string {
+  return BLOCKS_MOBILE_REUSE.map(code => `'${code}'`).join(',');
+}
+
 export class MatrixDb {
   /** Everything usp_AddUser inspects for one mobile number. */
   static async snapshot(mobile: string): Promise<MobileSnapshot> {

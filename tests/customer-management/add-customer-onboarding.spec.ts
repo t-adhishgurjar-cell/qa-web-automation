@@ -3,6 +3,8 @@ import * as path from 'path';
 import { test } from '../../src/fixtures/page.fixtures';
 import { epic, feature, story, severity, description, owner, tms } from 'allure-js-commons';
 import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
+import { CUSTOMER_ADMIN, TEST_OTP } from '../../src/config/accounts';
+import { runTag } from '../../src/helpers/test-identity';
 
 /**
  * Customer Onboarding — the full Add Customer journey.
@@ -21,15 +23,9 @@ import { AddCustomerPage } from '../../src/pages/customer-management/add-custome
 test.use({ storageState: { cookies: [], origins: [] } });
 test.describe.configure({ mode: 'serial' });
 
-const USER = process.env.CUSTOMER_ADMIN_USER ?? 'loadtest_006';
-const PASS = process.env.CUSTOMER_ADMIN_PASS ?? 'Nayara@1';
-const OTP = process.env.TEST_OTP ?? '123456';
+const { username: USER, password: PASS } = CUSTOMER_ADMIN;
+const OTP = TEST_OTP;
 const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
-
-/** Marks every record this suite creates, so QA can find and remove them. */
-function runTag(): string {
-  return `AUTO${String(Date.now()).slice(-8)}`;
-}
 
 /**
  * A mobile number unused by any previous run.
@@ -53,7 +49,7 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
     await dashboardPage.assertDashboardLoaded();
   });
 
-  test('submits a complete customer onboarding application @sanity', async ({ addCustomerPage, page }) => {
+  test('submits a complete customer onboarding application @sanity', async ({ addCustomerPage }) => {
     test.setTimeout(300_000);
     await tms('TC003-TC045', 'Customer Onboarding');
     await story('End-to-end onboarding');

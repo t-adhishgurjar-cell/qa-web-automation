@@ -1,5 +1,5 @@
 import { DbHelper } from './db.helper';
-import { MatrixDb, MobileSnapshot } from './matrix-db.helper';
+import { MatrixDb, MobileSnapshot, blockingTypesSqlList } from './matrix-db.helper';
 import { MatrixColumn } from '../data/usertype-matrix.data';
 
 /**
@@ -48,9 +48,13 @@ export interface FixtureSearch {
  */
 const CANDIDATE_LIMIT = 400;
 
-/** The user types usp_AddUser's Check 3 treats as blocking. */
-const BLOCKING_TYPES = `'FP_ADMIN','HO_ADMIN','HO','REGION_ADMIN','STATE_ADMIN',
-  'DIVISION_ADMIN','TERRITORY_ADMIN','OTHER_NAYARA','OTHER_NON','RO','OTHER_RO'`;
+/**
+ * The user types usp_AddUser's Check 3 treats as blocking, quoted for SQL.
+ *
+ * Derived from BLOCKS_MOBILE_REUSE rather than restated, so the discovery
+ * queries and the tests can never disagree about what blocks.
+ */
+const BLOCKING_TYPES = blockingTypesSqlList();
 
 /**
  * A mobile holding exactly one customer type and nothing else that blocks.

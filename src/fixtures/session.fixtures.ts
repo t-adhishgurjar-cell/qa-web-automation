@@ -2,6 +2,7 @@ import { Page } from '@playwright/test';
 import { test as base } from './page.fixtures';
 import { LoginPage } from '../pages/login.page';
 import { DashboardPage } from '../pages/dashboard.page';
+import { FP_ADMIN } from '../config/accounts';
 
 /**
  * One login per worker instead of one per test.
@@ -36,9 +37,6 @@ import { DashboardPage } from '../pages/dashboard.page';
  * that exercise the login screen itself keep their own fresh contexts.
  */
 
-const USER = process.env.FP_ADMIN_USER ?? 'loadtest_006';
-const PASS = process.env.FP_ADMIN_PASS ?? 'Nayara@1';
-
 type SessionFixtures = {
   /** A logged-in page, shared by every test in this worker. */
   sessionPage: Page;
@@ -69,7 +67,7 @@ export const test = base.extend<NoAddedTestFixtures, SessionFixtures>({
         const loginPage = new LoginPage(page);
         const dashboardPage = new DashboardPage(page);
         await loginPage.navigate();
-        await loginPage.login(USER, PASS);
+        await loginPage.login(FP_ADMIN.username, FP_ADMIN.password);
         await dashboardPage.assertDashboardLoaded();
         await use(page);
       } finally {

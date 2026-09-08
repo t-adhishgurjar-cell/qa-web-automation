@@ -549,7 +549,11 @@ export class AddCustomerPage extends BasePage {
       var out = [];
       document.querySelectorAll('.field-validation-error, .text-danger, .invalid-feedback, span[id$="_error"]')
         .forEach(function(e){
-          var t = (e.textContent || '').replace(/\s+/g, ' ').trim();
+          // The backslash is doubled on purpose. This whole block is a template
+          // literal, so a single one is consumed before the browser sees it and
+          // the regex arrives as /s+/g — stripping the letter "s" out of every
+          // validation message instead of collapsing whitespace.
+          var t = (e.textContent || '').replace(/\\s+/g, ' ').trim();
           var r = e.getBoundingClientRect();
           if (t && t !== '*' && r.width > 0 && r.height > 0) out.push(t.slice(0, 70));
         });

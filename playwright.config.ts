@@ -192,5 +192,18 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       testMatch: USER_MANAGEMENT_TESTS,
     },
+
+    // Data-building tools. These CREATE REAL RECORDS — a customer onboarded to
+    // Active, users that persist — so they are opt-in: the project only exists
+    // when TOOLS=true, and a normal run cannot reach them however broad its
+    // --grep. Run one with:
+    //   TOOLS=true ENV=qa npx playwright test --project=tools
+    ...(process.env.TOOLS === 'true'
+      ? [{
+          name: 'tools',
+          testDir: './tools',
+          use: { ...devices['Desktop Chrome'] },
+        }]
+      : []),
   ],
 });
