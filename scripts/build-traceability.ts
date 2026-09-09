@@ -19,6 +19,7 @@ import * as path from 'path';
 import * as XLSX from 'xlsx';
 import {
   MATRIX_COLUMNS, MATRIX_ROWS, cell, Cell,
+  officeApiVerdict, roApiVerdict,
 } from '../src/data/usertype-matrix.data';
 
 const WORKBOOK = path.resolve('test-data/FleetPlus_UserType_Matrix_TestCases.xlsx');
@@ -77,7 +78,16 @@ const UNSCHEDULED_FINDINGS: { title: string; detail: string }[] = [
   },
 ];
 
-/** The defect behind every disputed matrix cell, worded once. */
+/** An RO admin can be added to a mobile that already holds one. */
+const RO_API_DEFECT =
+  'The RO onboarding API created a second RO admin on a mobile that already ' +
+  'held an RO user, which the specification blocks.';
+
+/** Reserved: the Office API matched the specification on all 27 cells. */
+const OFFICE_API_DEFECT =
+  'The Office API disagrees with the specification for this cell.';
+
+/** The defect behind every disputed Add User cell, worded once. */
 const MATRIX_DEFECT =
   'usp_AddUser’s CustomerMaster check has no user-type guard, so a customer ' +
   'record blocks user types the specification permits.';
@@ -160,7 +170,21 @@ function generatedCells(): Map<string, Cell> {
   for (const row of MATRIX_ROWS) {
     for (const column of MATRIX_COLUMNS) {
       n += 1;
-      byId.set(`TC-UAM-${String(n).padStart(3, '0')}`, cell(row, column));
+      const base = cell(row, column);
+
+      // Each route enforces its own rule, so "disputed" has to be evaluated
+      // against the route that actually creates this row. Using Add User's
+      // verdict everywhere would mislabel the Office API and RO API cells —
+      // they are different code paths that happen to share a matrix.
+      const code = row.viaOfficeApi
+        ? officeApiVerdict(row, column)
+        : row.viaRoApi
+          ? roApiVerdict(row, column)
+          : base.code;
+
+      byId.set(`TC-UAM-${String(n).padStart(3, '0')}`, {
+        ...base, code, disputed: base.spec !== code,
+      });
     }
   }
   return byId;
@@ -175,7 +199,14 @@ function classify(
   if (result) {
     const matrixCell = cells.get(wbCase.id);
     const disputed =
-      DISPUTED_EDGE_CASES[wbCase.id] ?? (matrixCell?.disputed ? MATRIX_DEFECT : undefined);
+      DISPUTED_EDGE_CASES[wbCase.id] ??
+      (matrixCell?.disputed
+        ? matrixCell.row.viaRoApi
+          ? RO_API_DEFECT
+          : matrixCell.row.viaOfficeApi
+            ? OFFICE_API_DEFECT
+            : MATRIX_DEFECT
+        : undefined);
     return { state: 'automated', outcome: result.status, title: result.title, disputed };
   }
 
@@ -184,7 +215,10 @@ function classify(
   }
 
   const matrixCell = cells.get(wbCase.id);
-  if (matrixCell && !matrixCell.row.viaAddUser) {
+  if (
+    matrixCell && !matrixCell.row.viaAddUser &&
+    !matrixCell.row.viaOfficeApi && !matrixCell.row.viaRoApi
+  ) {
     return {
       state: 'not-covered',
       reason:

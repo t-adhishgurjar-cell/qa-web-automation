@@ -105,7 +105,11 @@ export class DbHelper {
       // names neither the query nor the caller and reads like a database fault.
       pool: { max: 10, min: 0, idleTimeoutMillis: 30_000, acquireTimeoutMillis: 60_000 },
       connectionTimeout: 20_000,
-      requestTimeout: 30_000,
+      // 30s was not enough for the fixture-discovery queries once a full run has
+      // the pool busy — they scan large tables with correlated filters and were
+      // timing out under load while passing in isolation, which reads as a
+      // flaky test rather than a slow query.
+      requestTimeout: 90_000,
     }).connect();
 
     return this.pool;
@@ -137,12 +141,57 @@ export class DbHelper {
       );
     }
 
-    const pool = await this.connect();
-    const request = pool.request();
-    for (const [name, value] of Object.entries(params)) request.input(name, value);
+    return this.withRetry(statement, async () => {
+      const pool = await this.connect();
+      const request = pool.request();
+      for (const [name, value] of Object.entries(params)) request.input(name, value);
+      const result = await request.query<T>(statement);
+      return result.recordset ?? [];
+    });
+  }
 
-    const result = await request.query<T>(statement);
-    return result.recordset ?? [];
+  /**
+   * Retries a query when the *connection* failed, never when the query did.
+   *
+   * The QA database dropped four times in one session — ECONNRESET, and
+   * "Failed to connect ... in 20000ms" — and each arrived as a failed test
+   * naming an assertion that had nothing to do with it. That is worse than
+   * useless in a signoff: it invites someone to investigate the application for
+   * a fault in the network.
+   *
+   * Only transport-level failures are retried, and the pool is discarded first
+   * so the next attempt dials afresh rather than drawing a dead socket. A
+   * timeout is deliberately NOT retried: a query too slow to finish will be too
+   * slow again, and retrying it three times just triples the wait before the
+   * same answer.
+   */
+  private static async withRetry<T>(statement: string, run: () => Promise<T>): Promise<T> {
+    const TRANSPORT_FAILURE = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|socket hang up|Connection lost|Failed to connect|Connection is closed|not connected/i;
+    const attempts = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await run();
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!TRANSPORT_FAILURE.test(message) || attempt === attempts) break;
+
+        this.logger.warn(
+          `Database connection failed (attempt ${attempt}/${attempts}): ${message}. ` +
+            `Reconnecting and retrying. Query: ${statement.slice(0, 60).replace(/\s+/g, ' ')}…`
+        );
+        await this.close().catch(() => undefined);
+        await new Promise(resolve => setTimeout(resolve, attempt * 2_000));
+      }
+    }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(
+      `${message}\n\nThis is a database transport failure, not an application ` +
+        `defect — the query never reached the server. Retried ${attempts} times.`
+    );
   }
 
   /** First row, or undefined. */
