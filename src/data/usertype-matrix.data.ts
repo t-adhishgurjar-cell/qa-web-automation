@@ -243,6 +243,15 @@ export interface MatrixRow {
   route: string;
   /** True only for the five the Add User screen offers. */
   viaAddUser: boolean;
+  /**
+   * True for the three SAP pushes in through insert_nayara_user.
+   *
+   * Kept separate from viaAddUser rather than folded into one "testable" flag,
+   * because the two routes enforce different rules and a cell's verdict depends
+   * on which one created it. Collapsing them would hide exactly the asymmetry
+   * these rows exist to measure.
+   */
+  viaOfficeApi?: boolean;
 }
 
 /**
@@ -256,9 +265,9 @@ export const MATRIX_ROWS: MatrixRow[] = [
   { code: 'FP_ADMIN', name: 'Admin', category: 'Nayara', route: 'Add User', viaAddUser: true },
   { code: 'HO_ADMIN', name: 'HO Admin', category: 'Nayara', route: 'Add User', viaAddUser: true },
   { code: 'HO', name: 'HO', category: 'Nayara', route: 'Add User', viaAddUser: true },
-  { code: 'REGION_ADMIN', name: 'Region Admin', category: 'Nayara', route: 'Office API', viaAddUser: false },
-  { code: 'STATE_ADMIN', name: 'State Admin', category: 'Nayara', route: 'Office API', viaAddUser: false },
-  { code: 'DIVISION_ADMIN', name: 'Division Admin', category: 'Nayara', route: 'Office API', viaAddUser: false },
+  { code: 'REGION_ADMIN', name: 'Region Admin', category: 'Nayara', route: 'Office API', viaAddUser: false, viaOfficeApi: true },
+  { code: 'STATE_ADMIN', name: 'State Admin', category: 'Nayara', route: 'Office API', viaAddUser: false, viaOfficeApi: true },
+  { code: 'DIVISION_ADMIN', name: 'Division Admin', category: 'Nayara', route: 'Office API', viaAddUser: false, viaOfficeApi: true },
   { code: 'TERRITORY_ADMIN', name: 'Territory Admin (TSM)', category: 'Nayara', route: 'RO onboarding API', viaAddUser: false },
   { code: 'OTHER_NAYARA', name: 'Other (Nayara)', category: 'Nayara', route: 'Add User', viaAddUser: true },
   { code: 'OTHER_NON', name: 'Other (Non Nayara)', category: 'Other', route: 'Add User', viaAddUser: true },
@@ -336,5 +345,43 @@ export function cell(row: MatrixRow, column: MatrixColumn): Cell {
 export function addUserCells(): Cell[] {
   return MATRIX_ROWS.filter(r => r.viaAddUser).flatMap(row =>
     MATRIX_COLUMNS.map(column => cell(row, column))
+  );
+}
+
+/**
+ * What the Office API does, as measured rather than as specified.
+ *
+ * Four probes, and the first reading of them was wrong, so the evidence is
+ * written down here rather than the conclusion alone:
+ *
+ *   fresh mobile, no users                        -> created
+ *   7000000008, a lone BRANCH_ADMIN, no customer  -> refused
+ *   6281774026, CUSTOMER_ADMIN + Fleet customer   -> refused
+ *   9100000013, an OD user and an OD customer     -> created
+ *
+ * "Refuses on any existing user" fitted the first three and was wrong: it
+ * allows a mobile whose user is an OD. The rule is that OD is exempt and
+ * everything else blocks — the same exemption usp_AddUser grants on the
+ * customer side, applied here to users as well.
+ *
+ * ── Where the two routes actually diverge ─────────────────────────────────
+ * usp_AddUser's blocking list omits every Customer-category type; the Office
+ * API blocks on all of them. So the divergence is not on OD mobiles, where both
+ * allow, nor on customer mobiles, where both refuse — it is on a mobile
+ * carrying a Customer-category user with no blocking customer record. Proven on
+ * 6000000126, a lone CUSTOMER_PARENT_USER: the Office API refused it and Add
+ * User created an FP_ADMIN on it in the same run.
+ */
+export function officeApiVerdict(_row: MatrixRow, column: MatrixColumn): Verdict {
+  return column.key === 'no-record' || column.key === 'od-only' ? 'allowed' : 'blocked';
+}
+
+export function officeApiCells(): Cell[] {
+  return MATRIX_ROWS.filter(r => r.viaOfficeApi).flatMap(row =>
+    MATRIX_COLUMNS.map(column => {
+      const base = cell(row, column);
+      const code = officeApiVerdict(row, column);
+      return { ...base, code, disputed: base.spec !== code };
+    })
   );
 }
