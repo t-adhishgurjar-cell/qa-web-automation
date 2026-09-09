@@ -252,6 +252,15 @@ export interface MatrixRow {
    * these rows exist to measure.
    */
   viaOfficeApi?: boolean;
+  /**
+   * True for the two the RO onboarding API creates.
+   *
+   * One call to that API creates both: the RO admin from `mobile` and the
+   * TERRITORY_ADMIN from `tsm_mobile`. They therefore share a route but not a
+   * mobile, and a single request can be accepted for one and refused for the
+   * other.
+   */
+  viaRoApi?: boolean;
 }
 
 /**
@@ -268,7 +277,7 @@ export const MATRIX_ROWS: MatrixRow[] = [
   { code: 'REGION_ADMIN', name: 'Region Admin', category: 'Nayara', route: 'Office API', viaAddUser: false, viaOfficeApi: true },
   { code: 'STATE_ADMIN', name: 'State Admin', category: 'Nayara', route: 'Office API', viaAddUser: false, viaOfficeApi: true },
   { code: 'DIVISION_ADMIN', name: 'Division Admin', category: 'Nayara', route: 'Office API', viaAddUser: false, viaOfficeApi: true },
-  { code: 'TERRITORY_ADMIN', name: 'Territory Admin (TSM)', category: 'Nayara', route: 'RO onboarding API', viaAddUser: false },
+  { code: 'TERRITORY_ADMIN', name: 'Territory Admin (TSM)', category: 'Nayara', route: 'RO onboarding API', viaAddUser: false, viaRoApi: true },
   { code: 'OTHER_NAYARA', name: 'Other (Nayara)', category: 'Nayara', route: 'Add User', viaAddUser: true },
   { code: 'OTHER_NON', name: 'Other (Non Nayara)', category: 'Other', route: 'Add User', viaAddUser: true },
 
@@ -279,7 +288,7 @@ export const MATRIX_ROWS: MatrixRow[] = [
   { code: 'CUSTOMER_PARENT_USER', name: 'Customer Parent User', category: 'Customer', route: "Customer Admin's portal", viaAddUser: false },
   { code: 'CUSTOMER_CHILD_USER', name: 'Customer Branch User', category: 'Customer', route: "Customer Admin's portal", viaAddUser: false },
 
-  { code: 'RO', name: 'RO Admin', category: 'RO', route: 'RO onboarding API', viaAddUser: false },
+  { code: 'RO', name: 'RO Admin', category: 'RO', route: 'RO onboarding API', viaAddUser: false, viaRoApi: true },
   { code: 'OTHER_RO', name: 'RO User', category: 'RO', route: 'RO onboarding API (unconfirmed)', viaAddUser: false },
 ];
 
@@ -381,6 +390,51 @@ export function officeApiCells(): Cell[] {
     MATRIX_COLUMNS.map(column => {
       const base = cell(row, column);
       const code = officeApiVerdict(row, column);
+      return { ...base, code, disputed: base.spec !== code };
+    })
+  );
+}
+
+/**
+ * What the RO onboarding API does, as measured.
+ *
+ * It applies different rules to the two users one call creates, and the first
+ * version of this function missed that entirely by generalising from RO probes
+ * to both rows.
+ *
+ *   RO admin, active Fleet customer mobile  -> Created (RO#230302)
+ *   RO admin, active FP_ADMIN mobile        -> Error, "already registered with
+ *                                              another user type ... for RO Admin"
+ *   TSM, customer-record mobiles            -> Error, "already registered with
+ *                                              another user type ... for TSM"
+ *
+ * So a customer record blocks the TSM and not the RO admin — which is exactly
+ * what the workbook specifies, TERRITORY_ADMIN being Nayara staff and RO not.
+ * The API is right and the prediction was wrong.
+ *
+ * The one place it departs from the workbook is an RO admin on a mobile that
+ * already holds an RO user: the specification blocks that and the API created a
+ * second one. That cell is the disputed one.
+ */
+export function roApiVerdict(row: MatrixRow, column: MatrixColumn): Verdict {
+  if (column.check === 'none') return 'allowed';
+
+  // A second RO admin on a mobile that already has one: measured as allowed,
+  // against a specification that blocks it.
+  if (row.code === 'RO' && column.key === 'ro-user') return 'allowed';
+
+  if (column.check === 'Users' || column.check === 'ROMaster') return 'blocked';
+
+  // Customer records stop Nayara staff and not retail-outlet staff.
+  return row.category === 'Nayara' ? 'blocked' : 'allowed';
+}
+
+/** One cell per RO-onboarding row and column, carrying that route's verdict. */
+export function roApiCells(): Cell[] {
+  return MATRIX_ROWS.filter(r => r.viaRoApi).flatMap(row =>
+    MATRIX_COLUMNS.map(column => {
+      const base = cell(row, column);
+      const code = roApiVerdict(row, column);
       return { ...base, code, disputed: base.spec !== code };
     })
   );
