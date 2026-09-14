@@ -229,4 +229,152 @@ test.describe('Tools — probes @tools', () => {
     console.log(`fields    : ${after.newFields.join(', ')}`);
     console.log(`buttons   : ${after.buttons.join(' ')}`);
   });
+
+  test('probe branch flow — what the form reveals once a customer is chosen', async ({
+    loginPage, dashboardPage, page,
+  }) => {
+    test.setTimeout(300_000);
+    await loginPage.navigate();
+    await loginPage.login(FP_ADMIN.username, FP_ADMIN.password);
+    await dashboardPage.assertDashboardLoaded();
+
+    const snapshot = async (label: string) => {
+      const state = await page.evaluate(() => {
+        const vis = (el: Element | null): boolean => {
+          if (!el) return false;
+          const st = getComputedStyle(el);
+          return st.display !== 'none' && st.visibility !== 'hidden' &&
+            !!(el as HTMLElement).getClientRects().length;
+        };
+        const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? '';
+        return {
+          visible: Array.from(document.querySelectorAll('input, select, textarea'))
+            .filter(vis).map(e => (e as HTMLElement).id).filter(Boolean),
+          name: val('abCustomerName'),
+          mobile: val('abCustomerMobile'),
+          state: val('abState'),
+          city: val('abCity'),
+          dialogs: Array.from(document.querySelectorAll('.modal.show, .toast, .alert'))
+            .filter(vis).map(e => (e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100)),
+        };
+      });
+      console.log(`\n[${label}]`);
+      console.log(`  visible fields: ${state.visible.join(', ')}`);
+      console.log(`  name="${state.name}" mobile="${state.mobile}" state="${state.state}" city="${state.city}"`);
+      if (state.dialogs.length) console.log(`  dialogs: ${state.dialogs.join(' | ')}`);
+    };
+
+    await page.goto('/Customer/AddBranch', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
+    await snapshot('on load');
+
+    await page.fill('#abCustomerId', 'NAYAFP1013400034');
+    await page.locator('#abCustomerId').blur();
+    await page.waitForTimeout(3500);
+    await snapshot('after entering the parent customer id');
+
+    // Branch type is hidden on load; see whether choosing one opens more.
+    const fleet = page.locator('label[for="abBranchTypeFleet"]');
+    if (await fleet.isVisible().catch(() => false)) {
+      await fleet.click().catch(() => undefined);
+      await page.waitForTimeout(2000);
+      await snapshot('after choosing Fleet branch type');
+    } else {
+      console.log('\n[branch type] label[for=abBranchTypeFleet] is not visible');
+    }
+
+    await page.fill('#abPinCode', '201304');
+    await page.locator('#abPinCode').blur();
+    await page.waitForTimeout(3000);
+    await snapshot('after pin code');
+  });
+
+  test('probe branch otp — what appears once the OTP is sent', async ({
+    loginPage, dashboardPage, page,
+  }) => {
+    test.setTimeout(300_000);
+    await loginPage.navigate();
+    await loginPage.login(FP_ADMIN.username, FP_ADMIN.password);
+    await dashboardPage.assertDashboardLoaded();
+
+    await page.goto('/Customer/AddBranch', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
+    await page.fill('#abCustomerId', 'NAYAFP1013400034');
+    await page.locator('#abCustomerId').blur();
+    await page.waitForTimeout(3500);
+    await page.locator('label[for="abBranchTypeFleet"]').click().catch(() => undefined);
+    await page.waitForTimeout(1500);
+
+    const mobile = `9${String(Date.now()).slice(-9)}`;
+    await page.fill('#abManagerMobile', mobile);
+    await page.locator('#abManagerMobile').blur();
+    await page.waitForTimeout(1500);
+    await page.click('#abBtnGenerateMobileOtp').catch(() => undefined);
+    await page.waitForTimeout(3500);
+
+    const after = await page.evaluate(() => {
+      const vis = (el: Element): boolean => {
+        const st = getComputedStyle(el);
+        return st.display !== 'none' && st.visibility !== 'hidden' &&
+          !!(el as HTMLElement).getClientRects().length;
+      };
+      return {
+        buttons: Array.from(document.querySelectorAll('button')).filter(vis)
+          .map(b => `${b.id || '-'}:"${(b.textContent || '').trim().slice(0, 26)}"`),
+        fields: Array.from(document.querySelectorAll('input')).filter(vis)
+          .map(f => (f as HTMLElement).id).filter(Boolean),
+        dialogs: Array.from(document.querySelectorAll('.modal.show, .toast, .alert')).filter(vis)
+          .map(e => (e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100)),
+      };
+    });
+    console.log(`\nmobile used: ${mobile}`);
+    console.log(`fields  : ${after.fields.join(', ')}`);
+    console.log(`buttons : ${after.buttons.join(' ')}`);
+    console.log(`dialogs : ${after.dialogs.join(' | ') || '(none)'}`);
+  });
+
+  test('probe branch as parent admin — what this role is shown', async ({
+    loginPage, dashboardPage, page,
+  }) => {
+    test.setTimeout(300_000);
+    const { PARENT_ADMIN } = await import('../src/config/accounts');
+
+    await loginPage.navigate();
+    await loginPage.login(PARENT_ADMIN.username, PARENT_ADMIN.password, PARENT_ADMIN.roleCode);
+    await dashboardPage.assertDashboardLoaded();
+
+    const links = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('a[href]'))
+        .map(a => ({ text: (a.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 44),
+                     href: a.getAttribute('href') || '' }))
+        .filter(l => l.text && /branch|bank|customer/i.test(l.text + l.href)));
+    console.log('menu entries this role can see:');
+    for (const l of links) console.log(`  ${l.text.padEnd(44)} ${l.href}`);
+
+    const resp = await page.goto('/Customer/AddBranch', { waitUntil: 'domcontentloaded' })
+      .catch(() => null);
+    await page.waitForTimeout(2500);
+    console.log(`\n/Customer/AddBranch -> HTTP ${resp?.status() ?? '?'} url=${page.url()}`);
+    console.log(`title: "${(await page.title()).trim()}"`);
+
+    const shape = await page.evaluate(() => {
+      const vis = (el: Element): boolean => {
+        const st = getComputedStyle(el);
+        return st.display !== 'none' && st.visibility !== 'hidden' &&
+          !!(el as HTMLElement).getClientRects().length;
+      };
+      return {
+        fields: Array.from(document.querySelectorAll('input, select, textarea'))
+          .filter(vis).map(e => (e as HTMLElement).id || (e as HTMLInputElement).name).filter(Boolean),
+        buttons: Array.from(document.querySelectorAll('button')).filter(vis)
+          .map(b => `${b.id || '-'}:"${(b.textContent || '').trim().slice(0, 24)}"`),
+        heading: (document.querySelector('h1,h2,h3,.page-title')?.textContent || '').trim().slice(0, 80),
+        body: (document.body.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      };
+    });
+    console.log(`heading : ${shape.heading}`);
+    console.log(`fields  : ${shape.fields.join(', ') || '(none)'}`);
+    console.log(`buttons : ${shape.buttons.join(' ') || '(none)'}`);
+    console.log(`body    : ${shape.body}`);
+  });
 });

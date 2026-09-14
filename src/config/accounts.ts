@@ -47,5 +47,30 @@ export const CUSTOMER_ADMIN: Account = {
   role: 'Customer onboarding',
 };
 
+/**
+ * A customer's own Parent Admin.
+ *
+ * Not a Nayara account: this is a real customer's login, owning a real customer
+ * with real branches. It matters because usp_InsertCustomerBranchRequestByWeb
+ * treats it differently from an FP Admin — a parent admin's branches
+ * auto-approve only while the customer is under MaxBranchAllowed, and route to
+ * the approval queue at status 108 beyond it. An FP Admin is never capped.
+ *
+ * The mobile carries four roles — one CUSTOMER_ADMIN and three BRANCH_ADMIN —
+ * so login must choose, which is why the role code is part of the account
+ * rather than left to whichever card renders first.
+ */
+export const PARENT_ADMIN: Account & { roleCode: string; ownCustomerId: string } = {
+  username: process.env.PARENT_ADMIN_USER ?? process.env.TEST_USERNAME ?? '9999303778',
+  password: process.env.PARENT_ADMIN_PASS ?? process.env.TEST_PASSWORD ?? '',
+  role: 'Parent Admin',
+  roleCode: process.env.PARENT_ADMIN_ROLE ?? 'CUSTOMER_ADMIN',
+  /** The customer this admin owns. Branches are added under it. */
+  ownCustomerId: process.env.PARENT_ADMIN_CUSTOMER ?? 'NAYAFP1020900195',
+};
+
+/** The branch cap, from ConfigurationMaster.MaxBranchAllowed. */
+export const MAX_BRANCH_ALLOWED = Number(process.env.MAX_BRANCH_ALLOWED ?? 5);
+
 /** The OTP every QA account accepts. */
 export const TEST_OTP = process.env.TEST_OTP ?? '123456';

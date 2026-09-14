@@ -36,8 +36,45 @@ export abstract class BasePage {
     await locator.click(options);
   }
 
+  /**
+   * Values never written to the log, whatever field they land in.
+   *
+   * Everything this framework knows that is worth hiding. Matching on the value
+   * rather than on the field is deliberate: a password typed into a
+   * confirmation box, a re-entry check or a search field is the same secret,
+   * and field-based masking misses all three.
+   */
+  private static secrets(): string[] {
+    return [
+      process.env.TEST_PASSWORD,
+      process.env.FP_ADMIN_PASS,
+      process.env.CUSTOMER_ADMIN_PASS,
+      process.env.PARENT_ADMIN_PASS,
+      process.env.DB_PASSWORD,
+      process.env.OFFICE_API_KEY,
+      process.env.RO_API_KEY,
+    ].filter((v): v is string => !!v && v.length > 3);
+  }
+
+  /** Replaces any known secret with a marker, leaving everything else legible. */
+  protected redact(value: string): string {
+    let out = value;
+    for (const secret of BasePage.secrets()) {
+      if (out.includes(secret)) out = out.split(secret).join('********');
+    }
+    return out;
+  }
+
+  /**
+   * Fills an input, logging the value with any known secret masked.
+   *
+   * The log used to carry the password verbatim — "Filling input with value:
+   * <the real password>" — into every run log and every Allure attachment. The
+   * value is still logged because seeing what was typed is most of this log's
+   * usefulness; it is the secrets that are removed, not the visibility.
+   */
   async fillInput(locator: Locator, value: string): Promise<void> {
-    this.logger.info(`Filling input with value: ${value}`);
+    this.logger.info(`Filling input with value: ${this.redact(value)}`);
     await locator.waitFor({ state: 'visible' });
     await locator.clear();
     await locator.fill(value);
