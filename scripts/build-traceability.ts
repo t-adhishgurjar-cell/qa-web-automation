@@ -49,6 +49,12 @@ const DISPUTED_EDGE_CASES: Record<string, string> = {
     'usp_AddUser accepts status 104 (Inactive) as blocking, so a deactivated ' +
     'customer never releases its mobile number. Confirmed against mobile ' +
     '6000000145 / customer NAYAFP2107000197.',
+  'TC-UAM-EC-021':
+    'Every refusal reads "This mobile number is already registered." whichever ' +
+    'of the three checks fired. Measured in one run on two mobiles blocked for ' +
+    'different reasons — a customer record and another staff user — and the two ' +
+    'messages were byte-identical. The admin cannot tell which situation they ' +
+    'are in, and the two need opposite responses.',
   'TC-UAM-EC-008':
     'Same defect as EC-006, measured on a fixture built for it: mobile ' +
     '9876896688 carries an Active OD (NAYAFP3013400036) beside an Inactive ' +

@@ -512,4 +512,145 @@ test.describe('Matrix — edge cases', () => {
       }
     );
   }
+
+  // ── Does a refusal say why? ───────────────────────────────────────────────
+
+  /**
+   * TC-UAM-EC-021 — three checks, three reasons, one sentence.
+   *
+   * usp_AddUser can refuse for entirely different reasons: the number belongs
+   * to a customer, or to another member of staff, or to a retail outlet. What
+   * the admin is told is the same either way.
+   *
+   * Every refusal this suite has captured, across all three checks, reads
+   * "This mobile number is already registered." — measured on Fleet, Non Fleet,
+   * Corporate and mixed customer mobiles, and on mobiles holding an RO user, an
+   * OTHER_RO user and an admin user. Seven distinct causes, one message.
+   *
+   * It matters because the causes need different responses. A number held by a
+   * customer may be legitimately reusable once that customer is dealt with; a
+   * number held by another administrator is somebody else's account and never
+   * will be. The admin cannot tell which they are looking at, so the only
+   * available action is to ask someone with database access.
+   *
+   * Written as an expected failure: it records what ships and turns red the day
+   * the messages are made distinct, which is when the matrix should be reread.
+   */
+  test(
+    'TC-UAM-EC-021 — a refusal says which check blocked it',
+    { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
+    async ({ addUserPage, page, db: _db }) => {
+      test.setTimeout(240_000);
+
+      await epic('User Management');
+      await feature('Add User');
+      await story('Edge cases — what the admin is told');
+      await owner('QA Team');
+      await tms('TC-UAM-EC-021');
+      await severity('normal');
+      await description(
+        'Refuses the same user type on two mobiles blocked for different ' +
+          'reasons — one by the CustomerMaster check, one by the Users check — ' +
+          'and compares what the application said. Identical wording means the ' +
+          'admin cannot tell the two situations apart.'
+      );
+
+      // Known defect: the two messages are the same today.
+      test.fail(
+        true,
+        'Known defect: every refusal reads "This mobile number is already ' +
+          'registered." regardless of which of the three checks fired.'
+      );
+
+      const ev = new Evidence(
+        'TC-UAM-EC-021 — a refusal says which check blocked it',
+        'tc-uam-ec-021'
+      );
+      ev.fact('Test case', 'TC-UAM-EC-021');
+      let status: 'passed' | 'failed' | 'skipped' = 'passed';
+
+      try {
+        const cases: { label: string; columnKey: string; message?: string }[] = [
+          { label: 'blocked by a customer record', columnKey: 'fleet-only' },
+          { label: 'blocked by another staff user', columnKey: 'admin-user' },
+        ];
+
+        for (const [index, subject] of cases.entries()) {
+          const col = column(subject.columnKey);
+          const search = await FixtureFinder.find(col, 1, index);
+          if (!search.found.length) {
+            status = 'skipped';
+            const reason = FixtureFinder.explain(col, search);
+            await ev.note('Precondition unavailable', `No mobile ${subject.label}.`, reason);
+            ev.finish(status);
+            test.skip(true, reason);
+            return;
+          }
+
+          const mobile = search.found[0].mobile;
+          const before = await MatrixDb.snapshot(mobile);
+          await ev.db(
+            `Database before — ${subject.label}`,
+            'Which check this mobile arms.',
+            MatrixDb.format('BEFORE', before)
+          );
+
+          const tag = runTag();
+          await addUserPage.open();
+          await addUserPage.enterMobile(mobile);
+          await addUserPage.fillIdentity({
+            mobile,
+            firstName: tag,
+            lastName: 'Ec021',
+            email: `${tag.toLowerCase()}.ec021@example.com`,
+            userType: 'FP_ADMIN',
+          });
+          await addUserPage.selectUserType('FP_ADMIN');
+          const outcome = await addUserPage.submit();
+          subject.message = (outcome.message || '').trim();
+
+          await ev.ui(
+            page,
+            `What the admin is told — ${subject.label}`,
+            outcome.created
+              ? 'Unexpectedly created.'
+              : `Refused: \u201c${subject.message || 'no message'}\u201d.`
+          );
+          ev.fact(subject.label, subject.message || '(no message)');
+
+          // A creation here means the fixture did not arm what it promised, and
+          // the comparison below would be between a refusal and a success.
+          expect(
+            outcome.created,
+            `${mobile} was supposed to be ${subject.label}, but Add User ` +
+              `created the user instead. The fixture does not arm this check.`
+          ).toBe(false);
+        }
+
+        const [customerCase, staffCase] = cases;
+        await ev.note(
+          'The comparison',
+          customerCase.message === staffCase.message
+            ? 'Both causes produced the same sentence.'
+            : 'The two causes produced different sentences.',
+          `blocked by a customer record  : "${customerCase.message}"\n` +
+            `blocked by another staff user : "${staffCase.message}"\n\n` +
+            `These are different situations. One may become reusable, the other ` +
+            `belongs to somebody else's account and never will.`
+        );
+
+        expect(
+          staffCase.message,
+          `Both refusals read "${customerCase.message}". The admin cannot tell ` +
+            `whether the number belongs to a customer or to another member of ` +
+            `staff, and the two need different responses.`
+        ).not.toBe(customerCase.message);
+      } catch (error) {
+        if (status !== 'skipped') status = 'failed';
+        throw error;
+      } finally {
+        if (status !== 'skipped') ev.finish(status);
+      }
+    }
+  );
 });
