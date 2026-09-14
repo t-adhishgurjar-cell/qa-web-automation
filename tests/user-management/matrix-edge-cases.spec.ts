@@ -653,4 +653,349 @@ test.describe('Matrix — edge cases', () => {
       }
     }
   );
+
+  // ── Malformed input, and where it is caught ──────────────────────────────
+
+  /**
+   * TC-UAM-EC-001 and EC-003 — input the field should never accept.
+   *
+   * An empty mobile and a mobile with letters in it. The workbook asks whether
+   * the procedure handles them gracefully; from the UI the more useful question
+   * is whether they reach the procedure at all, so each case records where it
+   * was stopped rather than only that it was.
+   *
+   * Both are expected to be refused. Neither should create a user, and a crash
+   * — a 500, a stack trace, a blank page — is a distinct and worse outcome than
+   * a refusal, so the assertion separates the two.
+   */
+  for (const { id, label, mobile, why } of [
+    {
+      id: 'TC-UAM-EC-001',
+      label: 'an empty mobile is refused without crashing',
+      mobile: '',
+      why:
+        'The workbook asks that a NULL or empty mobile be handled gracefully. ' +
+        'The UI cannot send SQL NULL, so this sends the nearest thing it can — ' +
+        'nothing at all — and checks that the application refuses rather than ' +
+        'breaks, and that no user is written.',
+    },
+    {
+      id: 'TC-UAM-EC-003',
+      label: 'a mobile containing letters is refused',
+      mobile: '98765ABCDE',
+      why:
+        'Ten characters, but five of them letters. Worth testing rather than ' +
+        'assuming: 4800885800 sits in the Users table today despite not being a ' +
+        'valid Indian mobile, so something, somewhere, has accepted a number it ' +
+        'should not have.',
+    },
+  ]) {
+    test(
+      `${id} — ${label}`,
+      { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
+      async ({ addUserPage, page, db: _db }) => {
+        test.setTimeout(180_000);
+
+        await epic('User Management');
+        await feature('Add User');
+        await story('Edge cases — malformed mobile');
+        await owner('QA Team');
+        await tms(id);
+        await severity('normal');
+        await description(why);
+
+        const ev = new Evidence(`${id} — ${label}`, id.toLowerCase());
+        ev.fact('Test case', id);
+        ev.fact('Mobile entered', JSON.stringify(mobile));
+        ev.fact('Expected', 'refused, and nothing written');
+        // No skip path here: both cases supply their own input and need no
+        // fixture, so the status is only ever passed or failed.
+        let status: 'passed' | 'failed' = 'passed';
+
+        try {
+          // Counted across the whole table, not for one mobile: an empty or
+          // malformed value has no mobile to take a snapshot of, and the
+          // question is whether *any* user appeared.
+          const countUsers = async (): Promise<number> => {
+            const rows = await DbHelper.query<{ n: number }>(
+              `SELECT COUNT(*) AS n FROM dbo.Users`
+            );
+            return rows[0]?.n ?? 0;
+          };
+
+          const before = await countUsers();
+          ev.fact('Users before', String(before));
+
+          await addUserPage.open();
+          await addUserPage.enterMobile(mobile);
+
+          const tag = runTag();
+          await addUserPage.fillIdentity({
+            mobile,
+            firstName: tag,
+            lastName: 'EdgeCase',
+            email: `${tag.toLowerCase()}.malformed@example.com`,
+            userType: 'FP_ADMIN',
+          });
+          await addUserPage.selectUserType('FP_ADMIN');
+          const outcome = await addUserPage.submit();
+
+          // A crash reads differently from a refusal and is worth naming.
+          const looksLikeCrash = /error|exception|runtime|stack|500/i.test(
+            await page.title().catch(() => '')
+          );
+
+          await ev.ui(
+            page,
+            'What the application did',
+            outcome.created
+              ? 'Reported as created.'
+              : `Refused: \u201c${outcome.message || 'no message — stopped before submitting'}\u201d.`
+          );
+
+          const after = await countUsers();
+          ev.fact('Users after', String(after));
+          await ev.note(
+            'Where it was stopped',
+            outcome.message
+              ? 'The application answered, so the request reached the server.'
+              : 'Nothing was said, which is the signature of client-side validation.',
+            `message : "${outcome.message || '(none)'}"\n` +
+              `users   : ${before} -> ${after}\n` +
+              `url     : ${outcome.finalUrl}`
+          );
+
+          expect(looksLikeCrash, 'The page looks like an unhandled error.').toBe(false);
+          expect(
+            after,
+            `Entering ${JSON.stringify(mobile)} created a user. It should have ` +
+              `been refused at some layer.`
+          ).toBe(before);
+          expect(
+            outcome.created,
+            `The application reported success for ${JSON.stringify(mobile)}.`
+          ).toBe(false);
+        } catch (error) {
+          status = 'failed';
+          throw error;
+        } finally {
+          ev.finish(status);
+        }
+      }
+    );
+  }
+
+  // ── Where validation happens ─────────────────────────────────────────────
+
+  /**
+   * TC-UAM-EC-022 — does the browser catch a bad mobile before the server does?
+   *
+   * The workbook's reasoning is cost: a number that is obviously malformed
+   * should never become a database round trip. So this watches the network
+   * while submitting a plainly invalid mobile, and reports whether a request
+   * went out.
+   *
+   * Either answer is a legitimate result and neither is a defect on its own, so
+   * nothing here asserts a preference. What it asserts is the part that matters
+   * in both worlds: no user is created. The observation about where it was
+   * caught goes into the evidence for whoever is deciding.
+   */
+  test(
+    'TC-UAM-EC-022 — an invalid mobile is caught before the server is called',
+    { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
+    async ({ addUserPage, page, db: _db }) => {
+      test.setTimeout(180_000);
+
+      await epic('User Management');
+      await feature('Add User');
+      await story('Edge cases — where validation happens');
+      await owner('QA Team');
+      await tms('TC-UAM-EC-022');
+      await severity('minor');
+      await description(
+        'Submits an obviously invalid mobile and watches the network. Records ' +
+          'whether the browser stopped it or the server did; asserts only that ' +
+          'no user was created.'
+      );
+
+      const ev = new Evidence(
+        'TC-UAM-EC-022 — an invalid mobile is caught before the server is called',
+        'tc-uam-ec-022'
+      );
+      ev.fact('Test case', 'TC-UAM-EC-022');
+      let status: 'passed' | 'failed' = 'passed';
+
+      try {
+        const INVALID = '12345';
+        ev.fact('Mobile entered', INVALID);
+
+        const calls: string[] = [];
+        const record = (url: string): void => {
+          if (/\/User\/(AddUser|SaveUser|CreateUser|CheckMobile|ValidateMobile)/i.test(url)) {
+            calls.push(url);
+          }
+        };
+        page.on('request', req => { if (req.method() !== 'GET') record(req.url()); });
+
+        const rows = await DbHelper.query<{ n: number }>(`SELECT COUNT(*) AS n FROM dbo.Users`);
+        const before = rows[0]?.n ?? 0;
+
+        await addUserPage.open();
+        // Cleared after open() so the page's own load requests are not counted
+        // as a submission attempt.
+        calls.length = 0;
+
+        await addUserPage.enterMobile(INVALID);
+        const tag = runTag();
+        await addUserPage.fillIdentity({
+          mobile: INVALID,
+          firstName: tag,
+          lastName: 'EdgeCase',
+          email: `${tag.toLowerCase()}.ec022@example.com`,
+          userType: 'FP_ADMIN',
+        });
+        await addUserPage.selectUserType('FP_ADMIN');
+        const outcome = await addUserPage.submit();
+
+        await ev.ui(
+          page,
+          'What the application did',
+          outcome.created
+            ? 'Reported as created.'
+            : `Refused: \u201c${outcome.message || 'no message'}\u201d.`
+        );
+
+        const afterRows = await DbHelper.query<{ n: number }>(`SELECT COUNT(*) AS n FROM dbo.Users`);
+        const after = afterRows[0]?.n ?? 0;
+
+        const caughtInBrowser = calls.length === 0;
+        ev.fact('Caught by', caughtInBrowser ? 'the browser' : 'the server');
+        await ev.note(
+          'Where it was caught',
+          caughtInBrowser
+            ? 'No submission request left the browser.'
+            : `${calls.length} request(s) were sent before it was refused.`,
+          `user-creation requests observed : ${calls.length}\n` +
+            (calls.length ? `${calls.map(u => `  ${u}`).join('\n')}\n` : '') +
+            `application said               : "${outcome.message || '(nothing)'}"\n` +
+            `users                          : ${before} -> ${after}\n\n` +
+            `The workbook prefers the browser to catch this, to save a round ` +
+            `trip. Server-side refusal is correct behaviour too, so this is ` +
+            `recorded rather than asserted.`
+        );
+
+        expect(after, `A user was created for the invalid mobile ${INVALID}.`).toBe(before);
+        expect(outcome.created, 'The application reported success for an invalid mobile.').toBe(false);
+      } catch (error) {
+        status = 'failed';
+        throw error;
+      } finally {
+        ev.finish(status);
+      }
+    }
+  );
+
+  /**
+   * TC-UAM-EC-020 — the UI passes the procedure's refusal on to the admin.
+   *
+   * The blocked path end to end: a mobile that belongs to a Fleet customer, and
+   * whether the person at the screen is told anything at all. The matrix
+   * already proves no user is created; this is about whether the refusal
+   * surfaces rather than failing silently, which this application does
+   * elsewhere — the Approve button and the wizard's Next both return quietly
+   * when validation fails.
+   *
+   * It deliberately does not assert on the wording. EC-021 covers the fact that
+   * the wording is the same for every cause; here the bar is only that
+   * something is said.
+   */
+  test(
+    'TC-UAM-EC-020 — a blocked creation tells the admin something',
+    { tag: ['@regression', '@user-management', '@matrix', '@edge-case'] },
+    async ({ addUserPage, page, db: _db }) => {
+      test.setTimeout(180_000);
+
+      await epic('User Management');
+      await feature('Add User');
+      await story('Edge cases — what the admin is told');
+      await owner('QA Team');
+      await tms('TC-UAM-EC-020');
+      await severity('normal');
+      await description(
+        'Attempts FP_ADMIN on a mobile held by a Fleet customer and checks that ' +
+          'the refusal is actually displayed. The wording is EC-021 business; ' +
+          'this only asks that the admin is not left guessing.'
+      );
+
+      const ev = new Evidence(
+        'TC-UAM-EC-020 — a blocked creation tells the admin something',
+        'tc-uam-ec-020'
+      );
+      ev.fact('Test case', 'TC-UAM-EC-020');
+      let status: 'passed' | 'failed' | 'skipped' = 'passed';
+
+      try {
+        const col = column('fleet-only');
+        const search = await FixtureFinder.find(col, 1);
+        if (!search.found.length) {
+          status = 'skipped';
+          const reason = FixtureFinder.explain(col, search);
+          await ev.note('Precondition unavailable', 'No Fleet-only mobile.', reason);
+          ev.finish(status);
+          test.skip(true, reason);
+          return;
+        }
+
+        const mobile = search.found[0].mobile;
+        await parameter('Mobile under test', mobile);
+        ev.fact('Mobile under test', mobile);
+
+        const before = await MatrixDb.snapshot(mobile);
+        await ev.db(
+          'Database before',
+          'A Fleet customer holds this number, so the CustomerMaster check is armed.',
+          MatrixDb.format('BEFORE', before)
+        );
+
+        const tag = runTag();
+        await addUserPage.open();
+        await addUserPage.enterMobile(mobile);
+        await addUserPage.fillIdentity({
+          mobile,
+          firstName: tag,
+          lastName: 'EdgeCase',
+          email: `${tag.toLowerCase()}.ec020@example.com`,
+          userType: 'FP_ADMIN',
+        });
+        await addUserPage.selectUserType('FP_ADMIN');
+        const outcome = await addUserPage.submit();
+
+        await ev.ui(
+          page,
+          'What the admin sees',
+          outcome.message
+            ? `Refused: \u201c${outcome.message}\u201d.`
+            : 'Nothing was displayed.'
+        );
+
+        const after = await MatrixDb.snapshot(mobile);
+        await ev.db('Database after', 'Expected: no new user.', MatrixDb.format('AFTER', after));
+
+        const known = new Set(before.users.map(u => u.userId));
+        const added = after.users.filter(u => !known.has(u.userId));
+
+        expect(added, 'A user was created on a mobile held by a Fleet customer.').toHaveLength(0);
+        expect(
+          (outcome.message || '').trim(),
+          'The creation was blocked and the admin was told nothing. A silent ' +
+            'refusal is indistinguishable from a broken button.'
+        ).not.toBe('');
+      } catch (error) {
+        if (status !== 'skipped') status = 'failed';
+        throw error;
+      } finally {
+        if (status !== 'skipped') ev.finish(status);
+      }
+    }
+  );
 });

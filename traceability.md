@@ -1,6 +1,6 @@
 # Traceability — FleetPlus UserType × CustomerType matrix
 
-Generated 2026-09-09 11:19:44 UTC
+Generated 2026-09-14 04:48:35 UTC
 from `FleetPlus_UserType_Matrix_TestCases.xlsx` and the results of the last run.
 
 ## Summary
@@ -8,14 +8,14 @@ from `FleetPlus_UserType_Matrix_TestCases.xlsx` and the results of the last run.
 | | Cases |
 |---|---|
 | In the workbook | 139 |
-| Automated | 97 |
-| — passed | 97 |
+| Automated | 102 |
+| — passed | 102 |
 | — failed | 0 |
 | — skipped | 0 |
-| — of those, known defects held green | 7 |
-| Not covered | 42 |
+| — of those, known defects held green | 8 |
+| Not covered | 37 |
 
-> **Read the pass column carefully.** 7 of the automated cases are marked as expected failures: the application disagrees with the specification, the test asserts the behaviour that actually ships, and so the run stays green. They are confirmed defects, not clean passes. Each is flagged below and listed in full under *Known defects*.
+> **Read the pass column carefully.** 8 of the automated cases are marked as expected failures: the application disagrees with the specification, the test asserts the behaviour that actually ships, and so the run stays green. They are confirmed defects, not clean passes. Each is flagged below and listed in full under *Known defects*.
 
 ## What this run does not vary
 
@@ -117,13 +117,18 @@ The same account acted as both maker and checker during customer onboarding, whi
 | TC-UAM-106 | pass (known defect) | Create RO — Existing RO user in Users table — Should be Blocked |
 | TC-UAM-107 | pass | Create RO — Existing OTHER_RO user — Should be Blocked |
 | TC-UAM-108 | pass | Create RO — Existing admin/system user — Should be Blocked |
+| TC-UAM-EC-001 | pass | Create any user with NULL mobile number |
 | TC-UAM-EC-002 | pass | Create user with mobile = "  9876543210  " (spaces) |
+| TC-UAM-EC-003 | pass | Create user with mobile = "98765ABCDE" |
 | TC-UAM-EC-004 | pass | Create user with 9-digit mobile number |
 | TC-UAM-EC-005 | pass | Create user with 11-digit mobile number |
 | TC-UAM-EC-006 | pass (known defect) | Create FP_ADMIN where mobile has inactive Fleet CustomerMaster record |
 | TC-UAM-EC-008 | pass (known defect) | Create FP_ADMIN where mobile has OD (active) + Fleet (inactive) |
 | TC-UAM-EC-012 | pass | Create FP_ADMIN where mobile has OD + Fleet + Corporate CM records |
 | TC-UAM-EC-015 | pass | Create FP_ADMIN where mobile already has an active FP_ADMIN user |
+| TC-UAM-EC-020 | pass | Create FP_ADMIN via UI with mobile belonging to a Fleet customer |
+| TC-UAM-EC-021 | pass (known defect) | Verify distinct error messages for different block reasons |
+| TC-UAM-EC-022 | pass | Enter invalid mobile in UI — verify client-side validation fires before API call |
 
 ## Known defects
 
@@ -140,6 +145,7 @@ Cases where the application and the specification disagree. The test records wha
 | TC-UAM-106 | The RO onboarding API created a second RO admin on a mobile that already held an RO user, which the specification blocks. |
 | TC-UAM-EC-006 | usp_AddUser accepts status 104 (Inactive) as blocking, so a deactivated customer never releases its mobile number. Confirmed against mobile 6000000145 / customer NAYAFP2107000197. |
 | TC-UAM-EC-008 | Same defect as EC-006, measured on a fixture built for it: mobile 9876896688 carries an Active OD (NAYAFP3013400036) beside an Inactive Fleet record (NAYAFP2023400019), and Add User was still refused. The OD exemption does not release a mobile — an inactive non-OD record blocks on its own. |
+| TC-UAM-EC-021 | Every refusal reads "This mobile number is already registered." whichever of the three checks fired. Measured in one run on two mobiles blocked for different reasons — a customer record and another staff user — and the two messages were byte-identical. The admin cannot tell which situation they are in, and the two need opposite responses. |
 
 ## Findings outside the workbook
 
@@ -180,18 +186,13 @@ On 9876896688 — whose only record was an inactive Fleet customer — Add Custo
 | TC-UAM-115 | OTHER_RO is created by RO onboarding API (unconfirmed), not by Add User. Out of scope for this signoff. |
 | TC-UAM-116 | OTHER_RO is created by RO onboarding API (unconfirmed), not by Add User. Out of scope for this signoff. |
 | TC-UAM-117 | OTHER_RO is created by RO onboarding API (unconfirmed), not by Add User. Out of scope for this signoff. |
-| TC-UAM-EC-001 | No test attempted this case, and no exclusion has been recorded for it. |
-| TC-UAM-EC-003 | No test attempted this case, and no exclusion has been recorded for it. |
 | TC-UAM-EC-007 | Needs a user type Add User does not offer, or a direct call to the procedure. Covered once the Office and RO onboarding APIs are available. |
 | TC-UAM-EC-009 | Needs two concurrent usp_AddUser calls. The database connection is read-only by design, so the procedure cannot be invoked directly. |
 | TC-UAM-EC-010 | Needs two concurrent usp_AddUser calls. The database connection is read-only by design, so the procedure cannot be invoked directly. |
 | TC-UAM-EC-011 | Needs a user type Add User does not offer, or a direct call to the procedure. Covered once the Office and RO onboarding APIs are available. |
-| TC-UAM-EC-013 | No test attempted this case, and no exclusion has been recorded for it. |
-| TC-UAM-EC-014 | No test attempted this case, and no exclusion has been recorded for it. |
+| TC-UAM-EC-013 | Needs UserTypeCode passed to the procedure as NULL or as an unrecognised string. The Add User dropdown can send neither, and the connection is read-only, so the procedure cannot be called directly. |
+| TC-UAM-EC-014 | Needs UserTypeCode passed to the procedure as NULL or as an unrecognised string. The Add User dropdown can send neither, and the connection is read-only, so the procedure cannot be called directly. |
 | TC-UAM-EC-016 | Needs a user type Add User does not offer, or a direct call to the procedure. Covered once the Office and RO onboarding APIs are available. |
 | TC-UAM-EC-017 | Needs a user type Add User does not offer, or a direct call to the procedure. Covered once the Office and RO onboarding APIs are available. |
 | TC-UAM-EC-018 | Needs a failure injected mid-transaction. Not reachable from the UI, and not reachable read-only. |
 | TC-UAM-EC-019 | Needs a user type Add User does not offer, or a direct call to the procedure. Covered once the Office and RO onboarding APIs are available. |
-| TC-UAM-EC-020 | No test attempted this case, and no exclusion has been recorded for it. |
-| TC-UAM-EC-021 | No test attempted this case, and no exclusion has been recorded for it. |
-| TC-UAM-EC-022 | No test attempted this case, and no exclusion has been recorded for it. |

@@ -119,6 +119,13 @@ const EXCLUSIONS: { match: (c: WorkbookCase) => boolean; reason: string }[] = [
       'not reachable read-only.',
   },
   {
+    match: c => /EC-013|EC-014/.test(c.id),
+    reason:
+      'Needs UserTypeCode passed to the procedure as NULL or as an unrecognised ' +
+      'string. The Add User dropdown can send neither, and the connection is ' +
+      'read-only, so the procedure cannot be called directly.',
+  },
+  {
     match: c => /EC-007|EC-011|EC-016|EC-017|EC-019/.test(c.id),
     reason:
       'Needs a user type Add User does not offer, or a direct call to the ' +
