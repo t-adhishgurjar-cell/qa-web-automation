@@ -24,12 +24,23 @@ const DB_TESTS = /database[\\/].*\.spec\.ts/;
  */
 const USER_MANAGEMENT_TESTS = /user-management[\\/].*\.spec\.ts/;
 
+/**
+ * Customer Management specs, for the same reasons: they drive their own login
+ * and several of them change real records, so running them once per browser
+ * would multiply the side effects by five. They also must not inherit the
+ * chromium project's storageState — replaying a saved FleetPlus session returns
+ * "Session Expired, Please login again!", so a spec that looks authenticated
+ * would in fact be sitting on the login page.
+ */
+const CUSTOMER_MANAGEMENT_TESTS = /customer-management[\\/].*\.spec\.ts/;
+
 const BROWSER_TEST_IGNORE = [
   /.*\.setup\.ts/,
   /.*\.api\.spec\.ts/,
   AUTH_TESTS,
   DB_TESTS,
   USER_MANAGEMENT_TESTS,
+  CUSTOMER_MANAGEMENT_TESTS,
 ];
 
 export default defineConfig({
@@ -191,6 +202,14 @@ export default defineConfig({
       name: 'user-management',
       use: { ...devices['Desktop Chrome'] },
       testMatch: USER_MANAGEMENT_TESTS,
+    },
+
+    // Customer Management — same shape as user-management: drives its own
+    // login, needs the database, and inherits neither storageState nor setup.
+    {
+      name: 'customer-management',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: CUSTOMER_MANAGEMENT_TESTS,
     },
 
     // Data-building tools. These CREATE REAL RECORDS — a customer onboarded to
