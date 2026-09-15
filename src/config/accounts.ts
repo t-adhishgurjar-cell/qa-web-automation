@@ -48,25 +48,52 @@ export const CUSTOMER_ADMIN: Account = {
 };
 
 /**
- * A customer's own Parent Admin.
+ * A customer's own administrators — one mobile, two roles.
  *
- * Not a Nayara account: this is a real customer's login, owning a real customer
- * with real branches. It matters because usp_InsertCustomerBranchRequestByWeb
- * treats it differently from an FP Admin — a parent admin's branches
- * auto-approve only while the customer is under MaxBranchAllowed, and route to
- * the approval queue at status 108 beyond it. An FP Admin is never capped.
+ * 9200000000 holds eight Users rows against a single mobile: one Customer Admin
+ * (Users.Id 230373, IsParentUser true, UserTypeId 10) and seven Branch Admins
+ * (UserTypeId 11), all active. That is why the login page offers a choice of
+ * cards, and why roleCode is part of the account rather than left to whichever
+ * card happens to render first — taking the default would silently walk a
+ * branch admin's smaller menu while the test claims to be a parent.
  *
- * The mobile carries four roles — one CUSTOMER_ADMIN and three BRANCH_ADMIN —
- * so login must choose, which is why the role code is part of the account
- * rather than left to whichever card renders first.
+ * The customer is NAYAFP1023400246 (CustomerMaster.Id 209136), confirmed
+ * working for Add Branch. It currently holds seven live branches at status 101
+ * under a MaxBranchAllowed of 5 — see the boundary note in
+ * add-branch-parent-admin.spec.ts for why that is not a contradiction.
+ *
+ * This matters to Add Branch because usp_InsertCustomerBranchRequestByWeb
+ * treats these roles differently from an FP Admin: a parent admin's branches
+ * auto-approve only under the cap and route to the approval queue at status 108
+ * beyond it, while an FP Admin is never capped.
  */
 export const PARENT_ADMIN: Account & { roleCode: string; ownCustomerId: string } = {
-  username: process.env.PARENT_ADMIN_USER ?? process.env.TEST_USERNAME ?? '9999303778',
+  username: process.env.PARENT_ADMIN_USER ?? '9200000000',
   password: process.env.PARENT_ADMIN_PASS ?? process.env.TEST_PASSWORD ?? '',
   role: 'Parent Admin',
   roleCode: process.env.PARENT_ADMIN_ROLE ?? 'CUSTOMER_ADMIN',
   /** The customer this admin owns. Branches are added under it. */
-  ownCustomerId: process.env.PARENT_ADMIN_CUSTOMER ?? 'NAYAFP1020900195',
+  ownCustomerId: process.env.PARENT_ADMIN_CUSTOMER ?? 'NAYAFP1023400246',
+};
+
+/**
+ * The same mobile, signed in as one of its branch administrators.
+ *
+ * Deliberately a separate export rather than an override of PARENT_ADMIN: the
+ * two are different capabilities on the same credentials, and a test that wants
+ * the branch view should say so rather than mutate a shared constant.
+ *
+ * Which of the seven branches a login lands on is whichever BRANCH_ADMIN card
+ * renders first, so anything asserting against a specific branch must read the
+ * branch from the session rather than assume one.
+ */
+export const BRANCH_ADMIN: Account & { roleCode: string; parentCustomerId: string } = {
+  username: process.env.BRANCH_ADMIN_USER ?? PARENT_ADMIN.username,
+  password: process.env.BRANCH_ADMIN_PASS ?? PARENT_ADMIN.password,
+  role: 'Branch Admin',
+  roleCode: process.env.BRANCH_ADMIN_ROLE ?? 'BRANCH_ADMIN',
+  /** The parent these branches hang off. */
+  parentCustomerId: process.env.BRANCH_ADMIN_PARENT ?? PARENT_ADMIN.ownCustomerId,
 };
 
 /** The branch cap, from ConfigurationMaster.MaxBranchAllowed. */
