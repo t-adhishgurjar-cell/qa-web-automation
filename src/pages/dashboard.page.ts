@@ -135,8 +135,56 @@ export class DashboardPage extends BasePage {
   async assertDashboardLoaded(): Promise<void> {
     await expect(this.page, 'still on the login page — sign-in did not complete')
       .not.toHaveURL(/Login/i);
+
+    // Before blaming the sidebar, read what the application actually said.
+    //
+    // A wrong password leaves the browser on a perfectly healthy login page —
+    // the URL does not change, so the check above passes — and the failure then
+    // surfaces ten seconds later as "the dashboard sidebar never rendered".
+    // That names the symptom furthest from the cause: "Invalid username or
+    // password." was on screen the whole time. This looks for it first so the
+    // message points at the credential rather than at the DOM.
+    const complaint = await this.loginComplaint();
+    if (complaint) {
+      throw new Error(
+        `Sign-in did not complete. The login page is reporting: "${complaint}"\n\n` +
+          `This is a credentials or account-state problem, not a missing ` +
+          `dashboard. Check the username and password for this account before ` +
+          `retrying — repeated failed attempts lock the account.`
+      );
+    }
+
     await expect(this.sidebarMenu, 'the dashboard sidebar never rendered').toBeVisible();
     await expect(this.userAvatar, 'the header user menu never rendered').toBeVisible();
+  }
+
+  /**
+   * Whatever the login page is complaining about, or '' if it is not.
+   *
+   * Kept in step with LoginPage.errorSurfaces: the app reports through inline
+   * spans for client-side validation and through #message or a Bootstrap modal
+   * for server-side rejection, and the modals live in the DOM permanently, so a
+   * text sweep finds nothing even while one is displayed.
+   */
+  private async loginComplaint(): Promise<string> {
+    const surfaces = [
+      '#message',
+      '#failer-mess-text',
+      '#error-mess-text',
+      '#username_error',
+      '#password_error',
+      '#captcha_error',
+    ];
+
+    for (const selector of surfaces) {
+      const node = this.page.locator(selector).first();
+      if (!(await node.isVisible().catch(() => false))) continue;
+      const text = ((await node.textContent().catch(() => '')) ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text.length > 3) return text;
+    }
+    return '';
   }
 
   async assertSidebarSectionVisible(sectionName: string): Promise<void> {

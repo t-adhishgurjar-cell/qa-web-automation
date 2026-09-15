@@ -21,20 +21,33 @@ export function runTag(): string {
 }
 
 /**
- * A mobile number no previous run has used, and no concurrent call either.
+ * A mobile number no previous run has used, and no concurrent caller either.
  *
  * The app refuses an already-registered number, so a fixed one works exactly
- * once. Leading 9 keeps it a plausible Indian mobile; the rest is the clock.
+ * once. Leading 9 keeps it a plausible Indian mobile; the rest is the clock,
+ * the worker, and a counter.
  *
- * The counter matters more than it looks. Derived from the clock alone, two
- * calls inside the same millisecond return the *same* number — which the RO
- * onboarding API, needing an RO mobile and a TSM mobile in one payload, refused
- * with "RO Admin mobile cannot be the same as TSM mobile on the same RO." That
- * read as a rule about the API and was really two identical timestamps.
+ * Both extra parts are there because both have already bitten:
+ *
+ *   the counter — two calls in the same millisecond returned the same number,
+ *   which the RO onboarding API refused with "RO Admin mobile cannot be the
+ *   same as TSM mobile on the same RO." That read as a rule about the API and
+ *   was two identical timestamps.
+ *
+ *   the worker — each Playwright worker is its own process, so the counter
+ *   restarts at zero in every one of them. Running the API matrix eight-wide,
+ *   separate workers minted the same number and the second was refused with
+ *   "already registered with another user type". A per-process counter is not
+ *   unique across processes, however carefully it is incremented.
  */
 let counter = 0;
 
+function workerSlot(): number {
+  // Playwright sets this per worker process; 0 when running outside a test.
+  return Number(process.env.TEST_WORKER_INDEX ?? 0) % 10;
+}
+
 export function freshMobile(): string {
   const tick = counter++ % 100;
-  return `9${String(Date.now()).slice(-7)}${String(tick).padStart(2, '0')}`;
+  return `9${workerSlot()}${String(Date.now()).slice(-6)}${String(tick).padStart(2, '0')}`;
 }

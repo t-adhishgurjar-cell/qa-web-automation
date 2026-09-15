@@ -197,6 +197,22 @@ export class FixtureFinder {
       }
     }
 
+    // A pool small enough that parallel workers will collide on it is worth
+    // naming. Each consuming cell retires its mobile permanently, so the pool
+    // shrinks every run and eventually cannot supply one test per cell. When
+    // that happens the mobile a worker selected has already been used by
+    // another, the creation is refused, and the test reports "should have been
+    // created but was not" — which reads exactly like an application defect and
+    // is not one.
+    if (!explicit && found.length < wanted) {
+      rejected.push(
+        `  the pool for "${column.label}" holds ${candidates.length} candidate(s); ` +
+          `${wanted} were needed and ${found.length} were usable. Cells that ` +
+          `expect success consume their fixture permanently, so this pool only ` +
+          `shrinks. Provision more before reading any failure here as a defect.`
+      );
+    }
+
     return { found, rejected };
   }
 

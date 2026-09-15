@@ -32,7 +32,10 @@
     "allure:serve": "allure serve allure-results --name \"FleetPlus Login\"",
     "visual:report": "npx tsx scripts/build-visual-report.ts",
     "signoff": "playwright test --project=user-management --grep \"Matrix\" && npm run signoff:report",
-    "signoff:report": "npx tsx scripts/build-traceability.ts && npx tsx scripts/build-visual-report.ts"
+    "signoff:report": "npx tsx scripts/build-traceability.ts && npx tsx scripts/build-visual-report.ts",
+    "regression:api": "WORKERS=8 playwright test --project=api-matrix",
+    "regression:ui": "playwright test --project=user-management --project=customer-management",
+    "regression": "npm run regression:api && npm run regression:ui && npm run signoff:report"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",

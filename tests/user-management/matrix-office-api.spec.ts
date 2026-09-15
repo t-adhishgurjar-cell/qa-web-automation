@@ -100,7 +100,13 @@ test.describe('Matrix — Office API officers', () => {
               if (cell.column.key === 'no-record') {
                 mobile = freshMobile();
               } else {
-                const search = await FixtureFinder.find(cell.column, 1, OFFICE_ROWS.indexOf(row));
+                // Offset by position in the FULL matrix, not within this spec. Both API
+                // matrices draw from the same scarce OD pool, and indexing within
+                // each spec gave office row 0 and RO row 0 the same mobile — which
+                // only collides once they run in parallel.
+                const search = await FixtureFinder.find(
+                  cell.column, 1, MATRIX_ROWS.findIndex(r => r.code === row.code)
+                );
                 if (!search.found.length) {
                   status = 'skipped';
                   const reason = FixtureFinder.explain(cell.column, search);

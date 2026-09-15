@@ -22,6 +22,16 @@ const DB_TESTS = /database[\\/].*\.spec\.ts/;
  * get one project rather than running once per browser — five browsers would
  * mean five customer applications in the reviewer queue per run.
  */
+/**
+ * The two matrix suites that talk to the SAP APIs directly.
+ *
+ * They open no browser and hold no session, so nothing stops them running many
+ * at once — unlike every other suite here, which is bounded by how many
+ * entitled accounts exist rather than by how many browsers can be launched.
+ * 45 of the 134 tests are in here.
+ */
+const API_MATRIX_TESTS = /user-management[\\/]matrix-(office|ro)-api\.spec\.ts/;
+
 const USER_MANAGEMENT_TESTS = /user-management[\\/].*\.spec\.ts/;
 
 /**
@@ -56,8 +66,15 @@ export default defineConfig({
   // Retry on CI only
   retries: process.env.CI ? 2 : 0,
 
-  // Limit parallel workers on CI
-  workers: process.env.CI ? 4 : 1,
+  /**
+   * One worker locally by default, because FleetPlus evicts other sessions for
+   * the same account: two browser workers logged in as the same user knock each
+   * other out mid-test. Parallelism here is bounded by accounts, not CPUs.
+   *
+   * WORKERS overrides it, which is how the API matrix runs wide — those tests
+   * hold no session and cannot collide.
+   */
+  workers: Number(process.env.WORKERS ?? (process.env.CI ? 4 : 1)),
 
   // Global timeout per test
   timeout: 60_000,
@@ -198,10 +215,20 @@ export default defineConfig({
 
     // User Management — drives login itself and needs the database alongside the
     // browser, so it inherits neither storageState nor the setup project.
+    // Browser-driven user management. Excludes the API matrices below, which
+    // would otherwise be dragged down to this project's single worker.
     {
       name: 'user-management',
       use: { ...devices['Desktop Chrome'] },
       testMatch: USER_MANAGEMENT_TESTS,
+      testIgnore: API_MATRIX_TESTS,
+    },
+
+    // Office and RO onboarding matrices. No browser, no session, safe to run
+    // many at once:  WORKERS=8 npx playwright test --project=api-matrix
+    {
+      name: 'api-matrix',
+      testMatch: API_MATRIX_TESTS,
     },
 
     // Customer Management — same shape as user-management: drives its own

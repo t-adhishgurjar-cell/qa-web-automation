@@ -188,6 +188,15 @@ export class DbHelper {
     }
 
     const message = lastError instanceof Error ? lastError.message : String(lastError);
+
+    // Only claim a transport failure when it actually was one. The loop breaks
+    // out for query errors too — "Invalid column name", a missing table, a
+    // constraint violation — and appending the transport note to those told the
+    // reader the query never reached the server when in fact the server is
+    // precisely what rejected it. That sends someone to check the network over
+    // a typo in a column name.
+    if (!TRANSPORT_FAILURE.test(message)) throw lastError;
+
     throw new Error(
       `${message}\n\nThis is a database transport failure, not an application ` +
         `defect — the query never reached the server. Retried ${attempts} times.`

@@ -92,7 +92,11 @@ test.describe('Matrix — RO onboarding API', () => {
               if (cell.column.key === 'no-record') {
                 mobile = freshMobile();
               } else {
-                const search = await FixtureFinder.find(cell.column, 1, RO_ROWS.indexOf(row));
+                // See matrix-office-api: offset by position in the full matrix so the
+                // two API specs cannot select the same fixture when run together.
+                const search = await FixtureFinder.find(
+                  cell.column, 1, MATRIX_ROWS.findIndex(r => r.code === row.code)
+                );
                 if (!search.found.length) {
                   status = 'skipped';
                   const reason = FixtureFinder.explain(cell.column, search);
