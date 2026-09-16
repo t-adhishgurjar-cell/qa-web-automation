@@ -1,3 +1,4 @@
+import * as net from 'net';
 import * as sql from 'mssql';
 import { Logger } from './logger.helper';
 
@@ -148,6 +149,69 @@ export class DbHelper {
       const result = await request.query<T>(statement);
       return result.recordset ?? [];
     });
+  }
+
+  /**
+   * Whether the database is reachable, and if not, whose problem it is.
+   *
+   * Two failures look identical from a test's point of view and have different
+   * owners, so this separates them before a run starts rather than after twenty
+   * minutes of confusing errors:
+   *
+   *   port closed         the VPN is down — reconnect and retry
+   *   port open, SQL
+   *     resets            the network is fine and the server is refusing the
+   *                       session; not something reconnecting fixes
+   *
+   * Observed on 16 September 2026: the port answered while every SQL connection
+   * died with ECONNRESET, which ruled VPN out and pointed at the server. Without
+   * this check that afternoon read as "the VPN is flaky".
+   *
+   * Deliberately not thrown from: callers decide whether an unreachable
+   * database is fatal. Reporting it accurately is the whole job here.
+   */
+  static async diagnose(): Promise<{ reachable: boolean; portOpen: boolean; detail: string }> {
+    const host = process.env.DB_HOST ?? '';
+    const port = Number(process.env.DB_PORT ?? 1433);
+
+    const portOpen = await new Promise<boolean>(resolve => {
+      const socket = new net.Socket();
+      const done = (ok: boolean) => {
+        socket.destroy();
+        resolve(ok);
+      };
+      socket.setTimeout(5_000);
+      socket.once('connect', () => done(true));
+      socket.once('timeout', () => done(false));
+      socket.once('error', () => done(false));
+      socket.connect(port, host);
+    });
+
+    if (!portOpen) {
+      return {
+        reachable: false,
+        portOpen: false,
+        detail:
+          `${host}:${port} is not reachable at all. That is the VPN: the ` +
+          `database sits on a private network, so a dropped tunnel closes the ` +
+          `port rather than refusing the login. Reconnect and run again.`,
+      };
+    }
+
+    try {
+      await this.query('SELECT 1 AS ok', {});
+      return { reachable: true, portOpen: true, detail: `${host}:${port} is answering.` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message.split('\n')[0] : String(error);
+      return {
+        reachable: false,
+        portOpen: true,
+        detail:
+          `${host}:${port} accepts a TCP connection but the SQL session fails: ` +
+          `"${message}". The network path is fine, so this is not the VPN — the ` +
+          `server is refusing or dropping sessions. Reconnecting will not help.`,
+      };
+    }
   }
 
   /**
