@@ -49,7 +49,7 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
     await dashboardPage.assertDashboardLoaded();
   });
 
-  test('submits a complete customer onboarding application @sanity', async ({ addCustomerPage }) => {
+  test('submits a complete customer onboarding application @sanity', async ({ addCustomerPage, page }) => {
     test.setTimeout(300_000);
     await tms('TC003-TC045', 'Customer Onboarding');
     await story('End-to-end onboarding');
@@ -103,9 +103,40 @@ test.describe('Customer Onboarding @customer-management @regression', () => {
     await addCustomerPage.fillMeetingDetails(today);
     await addCustomerPage.submit();
 
-    // Submitting leaves the wizard — a still-visible Submit button means it failed.
-    await expect(addCustomerPage.submitButton).toBeHidden({ timeout: 30_000 });
-    console.log(`Submitted application ${reference}`);
+    // Submitting does NOT leave the wizard. The application stays on the
+    // Meeting Details step and opens a modal:
+    //
+    //   Success
+    //   The customer form with Reference ID 1000514818 has been successfully
+    //   submitted.
+    //
+    // with Previous, Save As Draft and Submit all still on screen behind it.
+    // Waiting for the Submit button to disappear therefore fails on a
+    // submission that worked — which is what this assertion did, reporting a
+    // successful onboarding as a failure.
+    //
+    // The reference in that sentence is the real signal, and checking it
+    // against the one read at the start of the run is worth more than any
+    // visibility check: it proves the application that was submitted is the
+    // application this test filled in, not a draft left over from another.
+    const banner = page.locator('.modal.show').filter({ hasText: /successfully submitted/i }).first();
+
+    await expect(
+      banner,
+      `The wizard did not confirm the submission. Expected a modal saying the ` +
+        `form was successfully submitted; the page may still be reporting a ` +
+        `validation problem on the Meeting Details step.`
+    ).toBeVisible({ timeout: 30_000 });
+
+    const confirmation = ((await banner.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+    expect(
+      confirmation,
+      `The confirmation names a different application than the one this test ` +
+        `filled in. Expected reference ${reference}, and the screen said: ` +
+        `"${confirmation}".`
+    ).toContain(reference);
+
+    console.log(`Submitted application ${reference} — "${confirmation}"`);
   });
 
   test('saves a partial application as draft', async ({ addCustomerPage }) => {

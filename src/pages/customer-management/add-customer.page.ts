@@ -305,8 +305,61 @@ export class AddCustomerPage extends BasePage {
     // every step, not just at submit — skipping them fails the branch-step save
     // with a bare "Could not save customer draft."
     await this.page.locator('#SaveCustomerModel_PanDOB').fill(data.panDob);
+
+    // Read the PAN verdict instead of dismissing it.
+    //
+    // Blurring the PAN posts it to /Customer/ValidatePanNumber, and the app
+    // keeps a "PAN validated" flag from the answer. If that flag is false the
+    // wizard refuses to leave the Address step — two steps later — with:
+    //
+    //   "Please validate the PAN number before submission. Tab out of the PAN
+    //    field after entering it, fix any errors shown, then try again."
+    //
+    // shown in a modal that covers #btnShowOfficialDetails. The symptom is
+    // therefore a Next button that is visible, enabled and unclickable, on a
+    // screen with nothing wrong with it, and the cause is two steps behind.
+    // dismissValidationDialogs() used to clear the PAN popup without reading
+    // it, which is what made that trail cold.
+    //
+    // Note where the truth is. The response is HTTP 200 with status 1 and
+    // message "Success" even for a PAN the server rejects:
+    //
+    //   {"status":1,"isValid":0,"message":"Success","panCustomerName":""}
+    //
+    // Only isValid says so. Anything reading status or message concludes the
+    // PAN was accepted.
+    const panVerdict = this.page
+      .waitForResponse(r => /ValidatePanNumber/i.test(r.url()), { timeout: 20_000 })
+      .catch(() => null);
+
     await this.fillInput(this.panNumber, pan);
     await this.panNumber.blur();
+
+    const panResponse = await panVerdict;
+    if (panResponse) {
+      const verdict = await panResponse.json().catch(() => null);
+      if (verdict && Number(verdict.isValid) !== 1) {
+        throw new Error(
+          `The server rejected PAN ${pan} for business type ${businessTypeId}.\n\n` +
+            `  /Customer/ValidatePanNumber replied ${JSON.stringify(verdict)}\n\n` +
+            `isValid is 0, so the wizard's PAN flag stays false and it will ` +
+            `refuse to advance past the Address step later — reporting it as a ` +
+            `Next button that cannot be clicked. Failing here instead, where ` +
+            `the cause is.\n\n` +
+            `panCustomerName is empty, so this PAN was looked up and not found ` +
+            `rather than malformed. It is test data that needs replacing, not a ` +
+            `defect in the wizard.`
+        );
+      }
+      this.logger.info(`PAN ${pan} accepted by the server.`);
+    } else {
+      this.logger.warn(
+        `No /Customer/ValidatePanNumber call was seen after blurring the PAN. ` +
+          `The wizard's PAN flag may be unset, which surfaces later as an ` +
+          `unclickable Next on the Address step.`
+      );
+    }
+
     await this.page.waitForTimeout(1200);
     await this.dismissValidationDialogs();
     await this.uploadPanCard(data.uploadFile);
@@ -683,8 +736,28 @@ export class AddCustomerPage extends BasePage {
    * Not made unique per run: PANs are shared across applications throughout this
    * environment — one is on 21 of them — and CustomerMaster holds duplicates
    * too, so the application does not treat a PAN as identifying anything.
+   *
+   * ── Why not ABCPE1234F any more ──────────────────────────────────────────
+   * The previous value is rejected by /Customer/ValidatePanNumber with
+   * isValid 0, and has been since at least 14 September 2026. Measured by
+   * driving candidates through the field, twice, in different orders:
+   *
+   *   ABCPE1234F   rejected      the old value
+   *   ABCPA1234F   accepted      this one
+   *   AAAPA1234A   accepted
+   *   BNZPM2501F   accepted
+   *
+   * All four carry the same entity character, so the entity rule is not what
+   * separates them; the old value is rejected on its own account. Whatever the
+   * reason, the fourth-character rules below still hold and only the base
+   * changed.
+   *
+   * Candidates with C, F or D in that position produced NO validation call at
+   * all under business type 2 — the page blocks them client-side. Worth knowing,
+   * because "no call fired" and "validated silently" look identical from the
+   * outside, and only one of them means the wizard will advance.
    */
-  static readonly TEST_PAN = 'ABCPE1234F';
+  static readonly TEST_PAN = 'ABCPA1234F';
 
   /** The base PAN adjusted to whatever the selected business type will accept. */
   static panForBusinessType(entityId: string, base: string = AddCustomerPage.TEST_PAN): string {
