@@ -111,6 +111,57 @@ export const BRANCH_ADMIN: Account & { roleCode: string; parentCustomerId: strin
   parentCustomerId: process.env.BRANCH_ADMIN_PARENT ?? PARENT_ADMIN.ownCustomerId,
 };
 
+/**
+ * The onboarding chain's other two makers.
+ *
+ * Per the credentials workbook, onboarding is not one maker and one checker but
+ * three hands: a DSA raises the form, a TSM reviews it, and only then does a
+ * checker approve. The checklist states it plainly — DSA is a
+ * "maker role for onboarding — form must go through TSM Reviewer before
+ * Checker; cannot approve anything", and TSM is the "key maker role for
+ * onboarding; sees only mapped ROs".
+ *
+ * That last clause is the interesting one: a TSM is mapped to specific outlets
+ * by CMS Code, so two TSMs should see different work. 9616200105 (north) and
+ * 9616200106 (south) exist for exactly that comparison.
+ *
+ * ── An unverified note this replaces ──────────────────────────────────────
+ * The comment on ONBOARDING_MAKER claims DSA and TSM accounts "can open the
+ * wizard but not submit". That contradicts the workbook, which calls both maker
+ * roles, and it is not attributed to any measurement. Treat it as unverified
+ * until one of these accounts has actually been driven through the wizard.
+ *
+ * Credentials come from test-data/FleetPlusUsercredentials.xlsx, sheet
+ * "User Credentials". The 96162001xx alternates in the backup checklist are
+ * also created and login-tested if these prove to be mapped to the wrong
+ * division.
+ */
+export const DSA: Account = {
+  username: process.env.DSA_USER ?? '9611200199',
+  password: process.env.DSA_PASS ?? 'Thinkpad@1',
+  role: 'DSA',
+};
+
+export const TSM: Account = {
+  username: process.env.TSM_USER ?? '9612200200',
+  password: process.env.TSM_PASS ?? 'Thinkpad@1',
+  role: 'TSM',
+};
+
+/** The second TSM, for checking that outlet mapping actually scopes the work. */
+export const TSM_SOUTH: Account = {
+  username: process.env.TSM_SOUTH_USER ?? '9616200106',
+  password: process.env.TSM_SOUTH_PASS ?? 'Thinkpad@1',
+  role: 'TSM (south)',
+};
+
+/** Third-party Business Development Agent — the DSA's twin, per the workbook. */
+export const BDA: Account = {
+  username: process.env.BDA_USER ?? '9616200104',
+  password: process.env.BDA_PASS ?? 'Thinkpad@1',
+  role: 'BDA',
+};
+
 /** The branch cap, from ConfigurationMaster.MaxBranchAllowed. */
 export const MAX_BRANCH_ALLOWED = Number(process.env.MAX_BRANCH_ALLOWED ?? 5);
 
