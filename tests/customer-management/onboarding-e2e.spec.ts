@@ -4,6 +4,7 @@ import { description, epic, feature, owner, parameter, severity, story, tms } fr
 import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
 import { ApproveCustomerPage } from '../../src/pages/customer-management/approve-customer.page';
 import { ConsentPage } from '../../src/pages/customer-management/consent.page';
+import { ReviewCustomerPage } from '../../src/pages/customer-management/review-customer.page';
 import { DbHelper } from '../../src/helpers/db.helper';
 import { runTag, freshMobile } from '../../src/helpers/test-identity';
 import { DSA, TSM, FP_ADMIN, TEST_OTP } from '../../src/config/accounts';
@@ -47,6 +48,20 @@ import * as path from 'path';
  */
 
 const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
+
+/**
+ * The division whose TSM we hold credentials for, and its state.
+ *
+ * Review is hierarchical: a form is reviewable by a TSM of the same division.
+ * TSMDivisionMapping maps all 50 divisions, so this is not about finding one
+ * with a reviewer — it is about choosing the one whose reviewer we can sign in
+ * as. 9612200200 reviewed reference 1000513752 in division 17, Gurgaon.
+ */
+const REVIEW_DIVISION = process.env.E2E_DIVISION ?? 'Gurgaon';
+// The state list holds region codes, not state names: HR_HP_PB is
+// Haryana/Himachal/Punjab, and it is what filters the division list down to
+// Gurgaon, Ludhiana and Solan. Asking for "Haryana" matches nothing.
+const REVIEW_STATE = process.env.E2E_STATE ?? 'HR_HP_PB';
 
 interface RawRow {
   ReferenceNo: string;
@@ -120,6 +135,12 @@ test.describe('Customer onboarding end to end @customer-management @e2e', () => 
 
     await wizard.fillBasicInformation({
       customerType: 'Fleet',
+      // Gurgaon, because that is the division our TSM actually reviews — it
+      // moved reference 1000513752 to 105 from there. Left to default, the
+      // wizard picks Hyderabad and the form waits in a queue no TSM we can log
+      // in as will ever open.
+      state: REVIEW_STATE,
+      division: REVIEW_DIVISION,
       panNumber: AddCustomerPage.TEST_PAN,
       panDob: '1990-01-01',
       businessName: `${tag} E2E Co`,
@@ -300,16 +321,62 @@ test.describe('Customer onboarding end to end @customer-management @e2e', () => 
       if (row.hrefs.length) console.log(`      hrefs  : ${row.hrefs.join(' | ')}`);
     }
 
+    // Open the review page itself and record what it offers, before asserting
+    // anything about it. This screen has never been exercised, so what "review"
+    // does here is unmeasured.
+    if (found.some(r => r.text.includes(reference))) {
+      await page.goto(`/Customer/ReviewCustomerDetails?ReferenceNo=${reference}`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 45_000,
+      });
+      await page.waitForTimeout(3_500);
+
+      const review = await page.evaluate(() => {
+        const onScreen = (el: Element) => {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        };
+        const txt = (el: Element | null) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+        return {
+          title: txt(Array.from(document.querySelectorAll('p.box-head-title')).find(onScreen) ?? null),
+          buttons: Array.from(document.querySelectorAll('button, input[type=submit], a.btn'))
+            .filter(onScreen)
+            .map(b => `${(b as HTMLElement).id || '(no id)'}:"${txt(b) || (b as HTMLInputElement).value}"`),
+          fields: Array.from(document.querySelectorAll('input:not([type=hidden]), select, textarea'))
+            .filter(onScreen)
+            .map(f => (f as HTMLInputElement).id || (f as HTMLInputElement).name)
+            .filter(Boolean),
+        };
+      });
+      console.log(`  review page "${review.title}"`);
+      console.log(`    buttons: ${review.buttons.join(' | ')}`);
+      console.log(`    fields : ${review.fields.join(', ')}`);
+    }
+
     expect(
       found.some(r => r.text.includes(reference)),
       `Reference ${reference} is at status 102, Pending for Review, but it is ` +
-        `not in the TSM's reviewer queue. A form that needs review and reaches ` +
-        `nobody's queue is stuck: the maker believes it was submitted and no ` +
-        `reviewer can see it.\n\n` +
-        `This TSM sees only its mapped outlets, so the other reading is that ` +
-        `9612200200 is not mapped to the outlet this form was raised against — ` +
-        `in which case the chain needs the TSM that is.`
+        `not in this TSM's queue. Review is hierarchical — a TSM sees its own ` +
+        `division — so either the form was raised in a division this account ` +
+        `does not cover, or it has reached nobody at all.\n\n` +
+        `Measured: 9612200200 reviews division 17, Gurgaon. A form left to the ` +
+        `wizard's default lands on Hyderabad and waits here forever.`
     ).toBe(true);
+
+    // Perform the review. This is what moves 102 to 105 and puts the
+    // application in front of the checker.
+    const reviewer = new ReviewCustomerPage(page);
+    const outcome = await reviewer.review(reference);
+    console.log(`  review walked ${outcome.steps} step(s): "${outcome.message}"`);
+
+    const after = await applicationFor(reference);
+    expect(
+      after!.Status,
+      `After review the application should be at 105, Pending for Approval. ` +
+        `It is at ${after!.Status}. The reviewer walked ${outcome.steps} step(s) ` +
+        `and the screen said "${outcome.message}". A review that leaves the ` +
+        `application at 102 has not handed it on — the checker will never see it.`
+    ).toBe(105);
   });
 
   test('a checker approves, and the customer becomes usable', async ({ loginPage, dashboardPage, page }) => {

@@ -1,4 +1,5 @@
 import * as net from 'net';
+import { execFile } from 'child_process';
 import * as sql from 'mssql';
 import { Logger } from './logger.helper';
 
@@ -158,14 +159,22 @@ export class DbHelper {
    * owners, so this separates them before a run starts rather than after twenty
    * minutes of confusing errors:
    *
-   *   port closed         the VPN is down — reconnect and retry
+   *   port closed         nothing is routing to the host at all
    *   port open, SQL
-   *     resets            the network is fine and the server is refusing the
-   *                       session; not something reconnecting fixes
+   *     resets            a proxy answered the handshake; the session never
+   *                       reached the server
    *
-   * Observed on 16 September 2026: the port answered while every SQL connection
-   * died with ECONNRESET, which ruled VPN out and pointed at the server. Without
-   * this check that afternoon read as "the VPN is flaky".
+   * ── A TCP handshake proves nothing on its own ────────────────────────────
+   * This originally reported "port open, so this is not the VPN", and that was
+   * wrong. On 16 September 2026 the corporate tunnel (GlobalProtect, utun4)
+   * dropped while Zscaler stayed up, so traffic for 10.0.36.12 fell through to
+   * the Zscaler tunnel. Zscaler answered the SYN itself and then reset the
+   * session at a consistent ~4010ms once real data flowed — identical across
+   * four different encryption settings, which is the tell: TLS negotiation
+   * would not fail with the same timing every time.
+   *
+   * So a completed handshake can mean a proxy replied, not that the server is
+   * reachable. The route is the honest signal, and it is checked first.
    *
    * Deliberately not thrown from: callers decide whether an unreachable
    * database is fatal. Reporting it accurately is the whole job here.
@@ -173,6 +182,18 @@ export class DbHelper {
   static async diagnose(): Promise<{ reachable: boolean; portOpen: boolean; detail: string }> {
     const host = process.env.DB_HOST ?? '';
     const port = Number(process.env.DB_PORT ?? 1433);
+
+    // Which interface actually carries traffic for this host. When the
+    // corporate tunnel drops, another VPN client can pick the route up and
+    // answer handshakes it cannot fulfil, so this is the first thing to read.
+    const route = await new Promise<string>(resolve => {
+      execFile('route', ['-n', 'get', host], { timeout: 5_000 }, (err, stdout) => {
+        if (err) return resolve('');
+        const iface = /interface:\s*(\S+)/.exec(stdout)?.[1] ?? '?';
+        const gateway = /gateway:\s*(\S+)/.exec(stdout)?.[1] ?? '(none)';
+        resolve(`\n\nRoute to ${host}: interface ${iface}, gateway ${gateway}.`);
+      });
+    }).catch(() => '');
 
     const portOpen = await new Promise<boolean>(resolve => {
       const socket = new net.Socket();
@@ -192,9 +213,8 @@ export class DbHelper {
         reachable: false,
         portOpen: false,
         detail:
-          `${host}:${port} is not reachable at all. That is the VPN: the ` +
-          `database sits on a private network, so a dropped tunnel closes the ` +
-          `port rather than refusing the login. Reconnect and run again.`,
+          `${host}:${port} is not reachable at all — the VPN is down. ` +
+          `Reconnect and run again.${route}`,
       };
     }
 
@@ -208,8 +228,10 @@ export class DbHelper {
         portOpen: true,
         detail:
           `${host}:${port} accepts a TCP connection but the SQL session fails: ` +
-          `"${message}". The network path is fine, so this is not the VPN — the ` +
-          `server is refusing or dropping sessions. Reconnecting will not help.`,
+          `"${message}".\n\n` +
+          `A completed handshake does not mean the server was reached — a proxy ` +
+          `can answer it and reset once real data flows. Check the route below ` +
+          `before concluding the server is at fault.${route}`,
       };
     }
   }

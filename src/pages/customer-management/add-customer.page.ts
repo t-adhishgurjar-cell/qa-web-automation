@@ -207,18 +207,54 @@ export class AddCustomerPage extends BasePage {
           // fails in a much less obvious way than picking the avoided option.
           if (allowed.length) opts = allowed;
         }
+        var asked = !!(want.value || want.label);
+        var matched = !!chosen;
         if (!chosen) chosen = opts[Math.min(want.index - 1, opts.length - 1)];
         if (!chosen) return '';
         jQuery(sel).val(chosen.value).trigger('change');
         if (sel.sumo && sel.sumo.reload) { try { sel.sumo.reload(); } catch (e) {} }
+        // Report an unmatched explicit request rather than passing off the
+        // fallback as the caller's choice. See the note in selectDropdown.
+        if (asked && !matched) {
+          return '\u0000UNMATCHED\u0000' + chosen.text.trim() + '\u0000' +
+            opts.slice(0, 25).map(function(o){ return o.text.trim(); }).join(' | ');
+        }
         return chosen.text.trim();
       })()`
     );
 
     if (!selected) throw new Error(`No option matched ${JSON.stringify(choice)} in #${selectId}.`);
+
+    // A caller that named an option and silently got a different one is the
+    // worst outcome here, because the test carries on and fails somewhere else.
+    // It cost a full afternoon: asking for the "Haryana" state matched nothing,
+    // the fallback took option one (AP_TG), that filtered the division list to
+    // Hyderabad, and the onboarding form then waited in a queue no TSM we have
+    // credentials for can open. The failure surfaced three stages later as "the
+    // reviewer cannot see this application".
+    //
+    // The index fallback is still right when no option was named — several of
+    // these lists exist only to be filled with something valid. It is only
+    // wrong when it overrides an explicit request.
+    const marker = String(selected);
+    if (marker.startsWith('\u0000UNMATCHED\u0000')) {
+      const [, fellBackTo, available] = marker.split('\u0000');
+      throw new Error(
+        `#${selectId} has no option matching ${JSON.stringify(
+          choice.label instanceof RegExp ? choice.label.source : choice.label ?? choice.value
+        )}.\n\n` +
+          `It selected "${fellBackTo}" instead, which is almost certainly not ` +
+          `what the test meant.\n\n` +
+          `Available: ${available}\n\n` +
+          `Note that several of these lists are filtered by an earlier choice — ` +
+          `the division list depends on the state — so an option that is missing ` +
+          `here may simply belong to a different parent selection.`
+      );
+    }
+
     this.logger.info(`#${selectId} = ${selected}`);
     await this.page.waitForTimeout(600);
-    return String(selected);
+    return marker;
   }
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -286,8 +322,26 @@ export class AddCustomerPage extends BasePage {
 
     await this.selectDropdown('CustomerTypeID', { label: data.customerType });
     await this.selectDropdown('CustomerSubTypeID', {});
-    await this.selectDropdown('CustStateID', {});
-    await this.selectDropdown('CustDivisionID', {});
+    // State and division decide who reviews this application, so they are
+    // chosen rather than defaulted.
+    //
+    // These were both blind first-option picks, which meant the division — and
+    // therefore the reviewer — depended on option ordering the test never chose.
+    // Every form this suite raised landed on Hyderabad while the DSA raising it
+    // belongs to Gurgaon, so the application sat at 102, Pending for Review, in
+    // a queue no TSM we have credentials for can see. Measured: our TSM
+    // (9612200200) reviewed reference 1000513752 in division 17, Gurgaon, and
+    // saw none of ours in division 20.
+    //
+    // A DSA-raised form only advances if a same-division TSM can pick it up, so
+    // defaulting here quietly decides whether the rest of the chain is testable
+    // at all.
+    await this.selectDropdown('CustStateID', data.state ? { label: data.state } : {});
+    const division = await this.selectDropdown(
+      'CustDivisionID',
+      data.division ? { label: data.division } : {}
+    );
+    this.logger.info(`Division set to "${division}" — this decides which TSM reviews the form.`);
     await this.setRelatedParty(false);
 
     await this.fillInput(this.businessName, data.businessName);
@@ -815,6 +869,13 @@ export class AddCustomerPage extends BasePage {
 
 export interface BasicInformation {
   customerType: string;
+  /** Business state. Defaults to whatever the list offers first. */
+  state?: string;
+  /**
+   * Division, which decides which TSM can review the application. Leave unset
+   * only when the review stage does not matter to the test.
+   */
+  division?: string;
   panNumber: string;
   panDob: string;
   businessName: string;
