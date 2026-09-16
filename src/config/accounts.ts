@@ -41,11 +41,26 @@ export const FP_ADMIN: Account = {
  * TSM accounts can open it but not submit — so this is configured separately
  * rather than taken from the credentials sheet.
  */
-export const CUSTOMER_ADMIN: Account = {
-  username: process.env.CUSTOMER_ADMIN_USER ?? DEFAULT_USER,
-  password: process.env.CUSTOMER_ADMIN_PASS ?? DEFAULT_PASS,
+export const ONBOARDING_MAKER: Account = {
+  username: process.env.ONBOARDING_MAKER_USER ?? process.env.CUSTOMER_ADMIN_USER ?? DEFAULT_USER,
+  password: process.env.ONBOARDING_MAKER_PASS ?? process.env.CUSTOMER_ADMIN_PASS ?? DEFAULT_PASS,
   role: 'Customer onboarding',
 };
+
+/**
+ * Formerly exported as CUSTOMER_ADMIN, which was wrong and actively
+ * misleading. It never held a Customer Admin: it is loadtest_006, the FP
+ * Admin, named for the capability of running the onboarding wizard. Reading
+ * the name at face value led me to report that no Customer Admin account
+ * existed and that maker and checker were the same person for the wrong
+ * reason.
+ *
+ * The real Customer Admin is 9200000000 — PARENT_ADMIN below.
+ *
+ * @deprecated Use ONBOARDING_MAKER for the wizard, or PARENT_ADMIN for an
+ * actual Customer Admin. Kept so nothing breaks mid-change.
+ */
+export const CUSTOMER_ADMIN: Account = ONBOARDING_MAKER;
 
 /**
  * A customer's own administrators — one mobile, two roles.

@@ -3,7 +3,7 @@ import * as path from 'path';
 import { test } from '../../src/fixtures/page.fixtures';
 import { epic, feature, story, severity, description, owner, tms } from 'allure-js-commons';
 import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
-import { CUSTOMER_ADMIN, TEST_OTP } from '../../src/config/accounts';
+import { ONBOARDING_MAKER, TEST_OTP } from '../../src/config/accounts';
 import { runTag } from '../../src/helpers/test-identity';
 
 /**
@@ -23,7 +23,7 @@ import { runTag } from '../../src/helpers/test-identity';
 test.use({ storageState: { cookies: [], origins: [] } });
 test.describe.configure({ mode: 'serial' });
 
-const { username: USER, password: PASS } = CUSTOMER_ADMIN;
+const { username: USER, password: PASS } = ONBOARDING_MAKER;
 const OTP = TEST_OTP;
 const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
 

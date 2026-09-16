@@ -326,11 +326,15 @@ test.describe('Customer Status — activate and deactivate @customer-management'
     await story('Access');
     await severity('critical');
     await description('Needs an account without the entitlement; none is configured.');
+    // Now covered, in role-scope.spec.ts — "a Customer Admin is refused Manage
+    // Customer Status". It lives there because it needs its own login as
+    // 9200000000, and this spec runs on the worker-scoped FP Admin session.
     test.skip(
       true,
-      'No unentitled account is configured. This is the more valuable half of ' +
-        'the access pair — that the screen is reachable proves nothing about who ' +
-        'else can reach it.'
+      'Covered by role-scope.spec.ts as "a Customer Admin is refused Manage ' +
+        'Customer Status", which logs in as 9200000000 — a role that has this ' +
+        'screen in none of its 39 modules. Kept here as a pointer so the ' +
+        'workbook id still resolves.'
     );
   });
 });

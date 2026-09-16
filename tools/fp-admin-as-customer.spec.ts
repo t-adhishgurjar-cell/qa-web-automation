@@ -1,6 +1,6 @@
 import { test } from '../src/fixtures/page.fixtures';
 import { MatrixDb } from '../src/helpers/matrix-db.helper';
-import { CUSTOMER_ADMIN, TEST_OTP } from '../src/config/accounts';
+import { ONBOARDING_MAKER, TEST_OTP } from '../src/config/accounts';
 
 /**
  * The reverse direction: can a mobile that already logs in as staff be
@@ -28,7 +28,7 @@ import { CUSTOMER_ADMIN, TEST_OTP } from '../src/config/accounts';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-const { username: USER, password: PASS } = CUSTOMER_ADMIN;
+const { username: USER, password: PASS } = ONBOARDING_MAKER;
 
 /** An active FP_ADMIN with nothing else attached. Override to try another. */
 const MOBILE = process.env.FP_ADMIN_MOBILE ?? '9001000204';

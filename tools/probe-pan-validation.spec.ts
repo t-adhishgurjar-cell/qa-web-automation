@@ -1,5 +1,5 @@
 import { test } from '../src/fixtures/page.fixtures';
-import { CUSTOMER_ADMIN, TEST_OTP } from '../src/config/accounts';
+import { ONBOARDING_MAKER, TEST_OTP } from '../src/config/accounts';
 import { AddCustomerPage } from '../src/pages/customer-management/add-customer.page';
 import { runTag, freshMobile } from '../src/helpers/test-identity';
 import * as path from 'path';
@@ -46,7 +46,7 @@ test.describe('Tools — probes @tools', () => {
     test.setTimeout(10 * 60_000);
 
     await loginPage.navigate();
-    await loginPage.login(CUSTOMER_ADMIN.username, CUSTOMER_ADMIN.password);
+    await loginPage.login(ONBOARDING_MAKER.username, ONBOARDING_MAKER.password);
     await dashboardPage.assertDashboardLoaded();
 
     // Capture the real request shape before replaying it — the payload's field

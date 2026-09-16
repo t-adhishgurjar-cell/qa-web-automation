@@ -194,6 +194,66 @@ test.describe('Role scope @customer-management', () => {
     }
   });
 
+  /**
+   * TC_MCS_03, finally runnable.
+   *
+   * The workbook has always had this case and it has always been skipped for
+   * want of an account without the entitlement. 9200000000 is one:
+   * /Customer/ManageCustomerStatus appears in none of the 39 modules its menu
+   * offers. It is the more valuable half of the access pair — that an FP Admin
+   * can reach the screen says nothing about who else can — and the screen
+   * activates and deactivates customers.
+   */
+  test('a Customer Admin is refused Manage Customer Status', async ({
+    loginPage,
+    dashboardPage,
+    page,
+  }) => {
+    await story('Entitlement');
+    await severity('critical');
+    await parameter('Unentitled account', PARENT_ADMIN.username);
+    await description(
+      'Navigates directly rather than looking for a menu entry: a screen ' +
+        'missing from the menu but still served on its URL is reachable by ' +
+        'anyone who knows the path.'
+    );
+
+    await loginPage.navigate();
+    await loginPage.login(PARENT_ADMIN.username, PARENT_ADMIN.password, PARENT_ADMIN.roleCode);
+    await dashboardPage.assertDashboardLoaded();
+
+    await page.goto('/Customer/ManageCustomerStatus', {
+      waitUntil: 'domcontentloaded',
+      timeout: 45_000,
+    });
+    await page.waitForTimeout(2_500);
+
+    const refused = await page
+      .locator('text=/unauthorized access|do not have permission/i')
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    const searchOffered = await page.locator('#searchInput').isVisible().catch(() => false);
+
+    expect(
+      searchOffered,
+      `A Customer Admin (${PARENT_ADMIN.username}) was served ` +
+        `/Customer/ManageCustomerStatus with its search box, despite the ` +
+        `screen being absent from all 39 modules its own menu offers. This ` +
+        `screen activates and deactivates customers, so a role that should ` +
+        `not see it could change customer status by knowing the URL.`
+    ).toBe(false);
+
+    expect(
+      refused,
+      `The screen was not served, but it did not say why either — no ` +
+        `"Unauthorized Access" message appeared. A silent refusal is hard to ` +
+        `distinguish from a page that simply failed to render, which matters ` +
+        `when this is what stands between a role and customer status.`
+    ).toBe(true);
+  });
+
   test('a branch admin cannot reach the parent-only modules', async ({
     loginPage,
     dashboardPage,
