@@ -43,6 +43,7 @@ const USER_MANAGEMENT_TESTS = /user-management[\\/].*\.spec\.ts/;
  * would in fact be sitting on the login page.
  */
 const CUSTOMER_MANAGEMENT_TESTS = /customer-management[\\/].*\.spec\.ts/;
+const VEHICLE_TESTS = /vehicle[\\/].*\.spec\.ts/;
 
 const BROWSER_TEST_IGNORE = [
   /.*\.setup\.ts/,
@@ -51,6 +52,7 @@ const BROWSER_TEST_IGNORE = [
   DB_TESTS,
   USER_MANAGEMENT_TESTS,
   CUSTOMER_MANAGEMENT_TESTS,
+  VEHICLE_TESTS,
 ];
 
 export default defineConfig({
@@ -237,6 +239,19 @@ export default defineConfig({
       name: 'customer-management',
       use: { ...devices['Desktop Chrome'] },
       testMatch: CUSTOMER_MANAGEMENT_TESTS,
+    },
+
+    // Vehicle Management. Separate from customer-management because these
+    // tests CHANGE VEHICLE STATE — blocking a vehicle stops it transacting —
+    // and a suite that does that should be selectable on its own rather than
+    // swept up by a broad run of everything else.
+    {
+      name: 'vehicle',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: VEHICLE_TESTS,
+      // tests/vehicle also holds coverage.api.spec.ts, which belongs to the
+      // `api` project and opens no browser.
+      testIgnore: /.*\.api\.spec\.ts/,
     },
 
     // Data-building tools. These CREATE REAL RECORDS — a customer onboarded to
