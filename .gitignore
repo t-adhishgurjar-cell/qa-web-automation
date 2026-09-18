@@ -32,3 +32,6 @@ Thumbs.db
 *.swp
 visual-evidence/
 visual-report.html
+
+# Session logs and probe output, not source.
+scratchpad/
