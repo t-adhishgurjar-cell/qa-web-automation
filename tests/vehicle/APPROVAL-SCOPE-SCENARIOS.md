@@ -69,8 +69,8 @@ restriction lived in whatever filtered that query.
 
 | # | Scenario | Expected | Status |
 |---|---|---|---|
-| VA-10 | Division Admin (any division) | **UNCONFIRMED** | Currently *sees* the full list. CR says "any State Admin" — is Division Admin intended too? |
-| VA-11 | Region Admin | **UNCONFIRMED** | Currently refused the screen outright. Under-reach, or correct? |
+| VA-10 | Division Admin (any division) | **Approves — confirmed intended** | Ruled: State and Division Admins may approve. Measured: the Ahmedabad I (GJ_I/West) Division Admin approved a Gurgaon (HR_HP_PB/North) vehicle — `ApprovedBy 230686`, `UserTypeId 6 DIVISION_ADMIN` |
+| VA-11 | Region Admin | **Refused — correct** | Ruled: only State and Division Admins approve. Measured: both Region Admins are refused the screen outright, which matches |
 | VA-12 | FP Admin | Approved | Superset role |
 | VA-13 | TSM / DSA / BDA | Refused | |
 | VA-14 | Customer Admin / Branch Admin | Refused | Not an FP officer screen |
@@ -119,6 +119,16 @@ trigger that routes a vehicle to the approval queue.
 | VA-24/25 | Two admins, one vehicle (stale tab) | **PASS on data, FAIL on message** — see defect below |
 | VA-26 | Bulk approve across divisions | **PASS** — 3 vehicles in 2 divisions, one action, "3 approved.", no duplicate live rows |
 | VA-33 | Search returns cross-division results | **PASS** — WB_NE admin found a HR_HP_PB customer's vehicle by both customer id and registration |
+| VA-10 | Division Admin approves cross-division | **PASS** — Ahmedabad I (GJ_I/West) approved a Gurgaon (HR_HP_PB/North) vehicle through the UI |
+| VA-11 | Region Admin cannot approve | **PASS** — refused the screen; no approval path exists for the role |
+
+The approver matrix is therefore settled and matches the ruling:
+
+| Role | Sees the queue | Can approve |
+|---|---|---|
+| State Admin | yes, unfiltered | yes, any division |
+| Division Admin | yes, unfiltered | yes, any division |
+| Region Admin | no — refused | no |
 
 ### Defect — the stale-approval message is wrong
 

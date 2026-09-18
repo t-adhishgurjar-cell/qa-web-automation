@@ -25,7 +25,13 @@ import { DashboardPage } from '../src/pages/dashboard.page';
  */
 
 const VEHICLE = process.env.PROBE_VEHICLE ?? 'demo';
-const APPROVER = { mobile: '9073275904', label: 'Kolkata State Admin (WB_NE / East)' };
+const APPROVERS = {
+  kolkataState: { mobile: '9073275904', label: 'Kolkata State Admin (WB_NE / East)' },
+  ahmedabadDivision: { mobile: '9073139002', label: 'Ahmedabad I Division Admin (GJ_I / West)' },
+  ahmedabadState: { mobile: '9073068501', label: 'Ahmedabad State Admin (GJ_I / West)' },
+  kolkataRegion: { mobile: '9073209903', label: 'Kolkata Region Admin (East)' },
+} as const;
+const APPROVER = APPROVERS[(process.env.APPROVER ?? 'kolkataState') as keyof typeof APPROVERS];
 const PASSWORD = process.env.OFFICER_PASSWORD ?? 'Nayara@1';
 
 test.use({ storageState: { cookies: [], origins: [] } });
