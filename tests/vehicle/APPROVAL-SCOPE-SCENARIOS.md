@@ -283,6 +283,53 @@ Bulk upload also performs no Vahan call at submit time, so 409 may be a hand-off
 job that had not run when this was measured. Under watch rather than reported as stuck — but it is
 the same shape as the nine 408 rows above, which have been waiting since June.
 
+## Bulk de-mapping — the second in-scope activity
+
+"Bulk De-Map" is a control inside `/Vehicle/DeMapVehicle`, not a menu entry. Template columns:
+**Vehicle number | Branch location | Reason for De-Mapping** — where *Branch location* is the
+display name (`01_GAUTAMBUDDHANAGAR`), not the Branch UID. Those names repeat across customers,
+which is why the grid shows Branch Location and Branch UID as separate columns.
+
+The flow has real scope machinery, visible in four endpoints:
+
+    /Vehicle/GetVehicleDemapLookup            resolves one vehicle
+    /Vehicle/ResolveBulkDemapCustomerScope    scopeMode + lockedBranchLocation
+    /Vehicle/ValidateBulkDemapRows            per row, with branchOptionsJson
+    /Vehicle/BulkDemapVehicleSubmit           the commit
+
+| Scenario | Result |
+|---|---|
+| Officer de-maps across divisions | **Allowed** — Ahmedabad I (GJ_I/West) de-mapped two Gurgaon (HR_HP_PB/North) vehicles: *"All 2 vehicle(s) De-Mapped successfully."*, both 401 -> 404 |
+| Sheet names a vehicle belonging to **another customer** | **Refused** — `ValidateBulkDemapRows` returns `status 0`, *"This Vehicle Is Not Registered Under This Customer."*, vehicle stays 401 |
+
+That is the change request's shape again: geography open, customer boundary intact. The refusal
+message here is accurate and actionable, which is worth noting against the bulk *upload* message in
+VA-29 that blames the wrong thing.
+
+### Defect — Bulk De-Map is a dead end for a customer admin
+
+A parent admin can open Bulk De-Map. The scope call succeeds —
+`{"scopeMode":"parent","enteredCustomerId":"NAYAFP1023400246","lockedBranchLocation":""}` — and
+`#bdCustomerId` is filled and correctly **readonly**, with `#bdCustomerName` resolved.
+
+Then there is nothing to do. All five controls are **absent from the DOM**, not hidden:
+
+    #btnBdDownloadTemplate   ABSENT
+    #btnBdPickExcel          ABSENT
+    #btnBdSubmit             ABSENT
+    #btnBdReset              ABSENT
+    #bdExcelFile             ABSENT
+
+No template, no upload, no submit. The officer's panel renders all five.
+
+Either customer admins are not meant to bulk de-map — in which case the entry point should say so
+rather than opening a functional-looking panel and resolving their customer — or the controls
+should be there and are not. The server evidently considers the role in scope, since
+`ResolveBulkDemapCustomerScope` answers `success: true` for them.
+
+Checked for presence in the DOM rather than visibility, and after a six-second settle, because the
+officer's panel populates from that same scope call and an instant read would catch it mid-render.
+
 ## Known gaps in this analysis
 
 - Only **listings** have been measured. No approval has been performed, so whether the *action*

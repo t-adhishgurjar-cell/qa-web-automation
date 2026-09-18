@@ -1,6 +1,6 @@
 # Jira tickets — vehicle approval scope change
 
-Five tickets, ready to paste. Raised from QA verification of the change request
+Six tickets, ready to paste. Raised from QA verification of the change request
 *"No mapping restrictions in customer & vehicle management"* (vehicle approval + bulk
 mapping/de-mapping, registered vehicles).
 
@@ -271,3 +271,63 @@ An approver faced with something that should not be approved — wrong data, a v
 really the customer's, a de-registered vehicle that should never be onboarded — has no way to say
 so. This is a plausible part of why **138 vehicles sit at 411**, the oldest since June: nothing ever
 leaves the queue except by approval. See also FP-B, which is the same shape.
+
+
+---
+
+## FP-F — Bulk De-Map opens for a customer admin with no controls at all
+
+| Field | Value |
+|---|---|
+| **Type** | Bug |
+| **Priority** | Low |
+| **Component** | Vehicle Management — De-Map Vehicle (Bulk De-Map) |
+| **Affects** | `/Vehicle/DeMapVehicle`, `POST /Vehicle/ResolveBulkDemapCustomerScope` |
+
+### Summary
+A Customer Admin can open **Bulk De-Map**, and the panel resolves their customer correctly — then
+offers no way to do anything. Every control is missing.
+
+### Steps to reproduce
+1. Sign in as a Customer Admin (`9200000000`, role Parent Admin).
+2. Open **Vehicle Management → De-Map vehicle**.
+3. Click **Bulk De-Map**.
+4. Wait for the panel to settle (about five seconds) and inspect it.
+
+### Expected
+Either the controls needed to do it — Download Template, Upload Excel, Submit — as an officer is
+given; or a clear refusal if the role is not meant to bulk de-map.
+
+### Actual
+The panel opens and populates. `POST /Vehicle/ResolveBulkDemapCustomerScope` returns:
+
+```json
+{"success":true,"data":{"scopeMode":"parent","enteredCustomerId":"NAYAFP1023400246",
+ "parentCustomerId":"NAYAFP1023400246","parentBusinessName":"Adhish Singh Gurjar",
+ "lockedBranchLocation":"","isOwnerDriver":0}}
+```
+
+`#bdCustomerId` is filled and readonly; `#bdCustomerName` reads "Adhish Singh Gurjar". And then:
+
+```
+#btnBdDownloadTemplate   ABSENT from the DOM
+#btnBdPickExcel          ABSENT from the DOM
+#btnBdSubmit             ABSENT from the DOM
+#btnBdReset              ABSENT from the DOM
+#bdExcelFile             ABSENT from the DOM
+```
+
+All five render for a Division Admin on the same screen.
+
+### Evidence
+Checked for **presence in the DOM**, not visibility, and after a six-second settle — the officer's
+panel populates from that same scope call, so an instant read would catch it mid-render. The
+controls are genuinely not created.
+
+The server evidently considers the role in scope, since the scope call answers `success: true`
+with `scopeMode: "parent"`.
+
+### Impact
+A user reaches a functional-looking screen, sees their own customer correctly identified, and has
+nothing to click. If the restriction is intended, the entry point should say so; if it is not, the
+capability is missing for every customer admin.
