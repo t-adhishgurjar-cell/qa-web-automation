@@ -121,6 +121,8 @@ trigger that routes a vehicle to the approval queue.
 | VA-33 | Search returns cross-division results | **PASS** — WB_NE admin found a HR_HP_PB customer's vehicle by both customer id and registration |
 | VA-10 | Division Admin approves cross-division | **PASS** — Ahmedabad I (GJ_I/West) approved a Gurgaon (HR_HP_PB/North) vehicle through the UI |
 | VA-11 | Region Admin cannot approve | **PASS** — refused the screen; no approval path exists for the role |
+| VA-28 | No Vahan-verified vehicle in the queue | **FAIL** — 8 listed as "Vahan Verified", 1 as "Duplicate"; see below |
+| VA-32 | Pagination | **PASS** — 146 rows across 2 pages at size 100; no scope or status change on page 2 |
 
 The approver matrix is therefore settled and matches the ruling:
 
@@ -129,6 +131,43 @@ The approver matrix is therefore settled and matches the ruling:
 | State Admin | yes, unfiltered | yes, any division |
 | Division Admin | yes, unfiltered | yes, any division |
 | Region Admin | no — refused | no |
+
+### Finding — the queue holds 9 vehicles that passed Vahan and never went live
+
+VA-28 asked whether a Vahan-verified vehicle can appear in a queue meant for failures. It can.
+Walking all pages of `/Vehicle/VehicleApproval` at page size 100 returns **146 rows**:
+
+| Label shown in the grid | Rows |
+|---|---|
+| Pending for Approval (411) | 138 |
+| **Vahan Verified (408)** | **8** |
+| Duplicate (412) | 1 |
+
+The application labels them itself, so this is not an inference from status codes.
+
+Two explanations were tested and rejected:
+
+- **"verified but the RC document is still pending"** — the approve endpoint is
+  `ApproveVehicleWithRC`, so this was the obvious reading. Of the 330 raw rows at 408 only **3**
+  carry an `RcDocPath`, and every queued one has none.
+- **"all 408 rows are listed"** — they are not. 330 sit at 408; only 8 appear.
+
+What actually distinguishes them: joining `RawVehiclesDetail` to `VehicleDetails` on
+(`VehicleNo`, `CustomerID`), **9 of the 330 rows at 408 have no live row at all**. Those are the
+ones in the queue. They carry `ApprovedBy NULL` and `ModifiedTime NULL`, and were created in June
+and July 2026 — so they have sat there for two to three months without anyone acting on them.
+
+So these are vehicles that **passed Vahan verification and were never promoted to
+`VehicleDetails`**. They are stranded in staging, and the approval screen is where they surface.
+
+Whether that is deliberate (a rescue hatch, surfacing records that failed to promote) or a leak in
+the queue's query, it reads wrong to an approver: the screen's purpose is vehicles whose
+verification failed, and a row labelled "Vahan Verified" invites the question of what approving it
+would even mean. Untested deliberately — the eight belong to other customers, and approving one to
+find out would be someone else's data.
+
+`PB23T2295`, `NL01AE2359`, `GJ05JD9759`, `NL01AE2368` are the four with no live row under any
+customer; the rest have live rows for *other* customers but none for the one they are queued under.
 
 ### Defect — the stale-approval message is wrong
 
