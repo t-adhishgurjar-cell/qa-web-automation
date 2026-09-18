@@ -104,6 +104,46 @@ restriction lived in whatever filtered that query.
 | VA-42 | Approve a vehicle id **not** in the caller's list, by id | The old rule lived somewhere; if the UI filter was removed but the server check was not, this fails for a foreign division — or vice versa, which is worse |
 | VA-43 | Out-of-scope screens still scoped: Add Vehicles, Transfer, Block/Unblock, single De-Map | The CR is narrow. `TC014`–`TC019` already assert branch scoping on Add Vehicles and must keep passing |
 
+## Results — executed 2026-09-18
+
+Fixtures come from `test-data/deregistered-vehicles.json`, extracted from the de-registered
+vehicle PDF. Those registrations fail Vahan by definition (`vahanStatus 405`), which is the
+trigger that routes a vehicle to the approval queue.
+
+| # | Scenario | Result |
+|---|---|---|
+| VA-02 | State Admin of a different state approves | **PASS** — Kolkata (WB_NE/East) approved a Noida (UP_UK/North) vehicle; 411 -> 402, live row 401 |
+| VA-03 | Queued against the customer's division, not the adder's | **PASS** — added by Ahmedabad I (GJ_I/West), queued under Noida (UP_UK/North) |
+| VA-05 | Queue spans customer divisions | **PASS** — Dehradun, Lucknow, Noida, Bengaluru all listed together |
+| VA-06 | Approved vehicle leaves the queue | **PASS** — searching an approved vehicle returns "No records found." |
+| VA-24/25 | Two admins, one vehicle (stale tab) | **PASS on data, FAIL on message** — see defect below |
+| VA-26 | Bulk approve across divisions | **PASS** — 3 vehicles in 2 divisions, one action, "3 approved.", no duplicate live rows |
+| VA-33 | Search returns cross-division results | **PASS** — WB_NE admin found a HR_HP_PB customer's vehicle by both customer id and registration |
+
+### Defect — the stale-approval message is wrong
+
+Two State Admins open the queue; the first approves; the second clicks Approve on the row its
+page still shows. **The data is handled correctly** — no second `VehicleDetails` row, status and
+`ModifiedBy` unchanged from the first approver. But the second admin is told:
+
+> **Vehicle Not Available** — This vehicle (DL1YA7706) is already assigned to your account.
+> Please add a different vehicle.   `Yes`  `No`  `Ok`
+
+Three things are wrong with that:
+
+1. **"assigned to your account"** — it is not. It belongs to customer NAYAFP2023400247 in Noida.
+   The admin reading this has no relationship to the vehicle beyond approving it.
+2. **"Please add a different vehicle"** — this is the approval queue, not Add Vehicles. There is
+   nothing to add here, and the instruction cannot be followed.
+3. **`Yes` / `No` / `Ok` on an error** — three buttons for a message with no question in it.
+
+It reads like the `CheckVehicleAssignment` response from the Add Vehicles flow surfaced verbatim
+in a screen it was not written for. Low severity for data, higher than it looks for operations:
+**this change is what makes the collision common.** Previously two admins could only race inside
+one division; now every State Admin in the country is looking at the same queue, so the first time
+most of them meet a concurrent approval they will be told a vehicle they have never seen is
+assigned to their account.
+
 ## Known gaps in this analysis
 
 - Only **listings** have been measured. No approval has been performed, so whether the *action*
