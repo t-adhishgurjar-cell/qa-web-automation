@@ -123,6 +123,8 @@ trigger that routes a vehicle to the approval queue.
 | VA-11 | Region Admin cannot approve | **PASS** — refused the screen; no approval path exists for the role |
 | VA-28 | No Vahan-verified vehicle in the queue | **FAIL** — 8 listed as "Vahan Verified", 1 as "Duplicate"; see below |
 | VA-32 | Pagination | **PASS** — 146 rows across 2 pages at size 100; no scope or status change on page 2 |
+| VA-29 | Vehicle for an Inactive customer | **Refused by both routes — bulk's reason is wrong**; see below |
+| VA-31 | Reject then re-submit | **Not applicable — no reject path exists**; see below |
 
 The approver matrix is therefore settled and matches the ruling:
 
@@ -192,6 +194,52 @@ in a screen it was not written for. Low severity for data, higher than it looks 
 one division; now every State Admin in the country is looking at the same queue, so the first time
 most of them meet a concurrent approval they will be told a vehicle they have never seen is
 assigned to their account.
+
+### VA-29 — a vehicle for an Inactive customer
+
+Both routes refuse, which is the right outcome. They disagree about why.
+
+| Route | Outcome | What it says |
+|---|---|---|
+| Manual entry | refused, Add disabled | `GetCustomerStatus` -> `{"status":0,"reason":"Customer is Inactive"}`, modal **"Customer is Inactive"** |
+| Bulk upload | refused, nothing written | **"Vehicle cannot be mapped with non fleet branch"** |
+
+**The bulk message is factually wrong.** `NAYAFP2023400133` is a fleet customer:
+`CustomerType 1` -> `CustomerTypeCode 1001` = **Fleet**, `CustomerSubType 8` -> code 5003 =
+**"Fleet less than 10 KL per month"**. The two customers bulk upload happily accepted are the same
+type (subtypes 40 "Fleet greater than 10 KL" and 1 "Aggregator", both 1001). The only difference
+between accepted and refused is `Status` — 101 versus 104.
+
+So bulk blames customer *type* for a customer *status* problem. Someone uploading 500 rows and
+getting "cannot be mapped with non fleet branch" will go looking for the wrong thing entirely,
+while manual entry on the same customer names the real cause.
+
+Note also that the preview staged the row as **"Ready"** before the server refused it.
+
+### VA-31 — not applicable: there is no reject path
+
+The scenario assumed a vehicle could be rejected and re-submitted. It cannot.
+
+Scanning every `button`, `a`, `input`, `[data-action]` and `[onclick]` on `/Vehicle/VehicleApproval`
+— visible **and** hidden, matching text, id, class, `data-action` and `title` against
+reject/decline/deny/refuse/return/correction — returns **zero** controls. A queue row offers
+exactly two things:
+
+    <input class="vap-row-select vap-grid-checkbox">
+    <button class="btn-approve-vahan">Approve</button>
+
+The page adds Search, Reset, "Approve Selected", Excel and PDF. Nothing declines a vehicle.
+
+Checked thoroughly rather than assumed, because this application does park controls in the DOM
+hidden — the *customer* review screen carries both Reject and Send for Correction, and the
+onboarding wizard keeps duplicate footers in inactive tab panes. Vehicle approval genuinely has
+neither.
+
+**Why this matters more after the change.** An approver who should not approve something — wrong
+data, a vehicle that is not really the customer's, a de-registered vehicle that should never be
+onboarded — has no way to say so. The only options are approve it or leave it in the queue. That is
+a plausible part of why 138 vehicles are sitting at 411, some since June, and it means the queue
+has no disposal route at all: nothing ever leaves it except by approval.
 
 ## Bulk mapping — the Bulk Upload tab
 
