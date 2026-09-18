@@ -309,6 +309,45 @@ export class ManageVehiclePage extends BasePage {
     });
   }
 
+  /**
+   * Chooses the customer on Set Vehicle Purchase Limits.
+   *
+   * #CustomerId is a <select> here, not the text input it is on every other
+   * vehicle screen — the module walk records inputs and selects together, so
+   * both look alike in that data. Filling it fails on "Element is not an
+   * <input>, <textarea> or [contenteditable]", which is accurate and says
+   * nothing about what to do instead.
+   *
+   * Matched on the option text containing the customer code, because these
+   * lists label options "NAYAFP2023400247 || 01_GAUTAMBUDDHANAGAR" rather than
+   * by code alone — an exact-value match finds nothing.
+   */
+  async chooseLimitCustomer(customerId: string): Promise<string> {
+    const chosen = await this.page.evaluate((code: string) => {
+      const sel = document.getElementById('CustomerId') as HTMLSelectElement | null;
+      if (!sel) return '';
+      const option = Array.from(sel.options).find(o => o.text.includes(code) || o.value === code);
+      if (!option) {
+        return `__MISSING__${Array.from(sel.options).map(o => o.text.trim()).slice(0, 12).join(' | ')}`;
+      }
+      sel.value = option.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return option.text.trim();
+    }, customerId);
+
+    if (chosen.startsWith('__MISSING__')) {
+      throw new Error(
+        `Set Vehicle Purchase Limits offers no customer matching ${customerId}. ` +
+          `It offers: ${chosen.replace('__MISSING__', '')}. This role may be ` +
+          `scoped to different branches than the vehicle belongs to.`
+      );
+    }
+
+    this.logger.info(`Purchase-limit customer set to "${chosen}"`);
+    await this.page.waitForTimeout(1_500);
+    return chosen;
+  }
+
   /** Closes any open modal and returns its text. */
   async dismissDialog(): Promise<string> {
     const modal = this.page.locator('.modal.show').first();

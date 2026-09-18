@@ -71,7 +71,43 @@ test.describe('Manage Vehicle @vehicle @regression', () => {
     );
 
     const fleet = await vehiclesUnder(PARENT);
-    const active = fleet.find(v => v.VehicleStatus === 401);
+    let active = fleet.find(v => v.VehicleStatus === 401);
+    const vehicles = new ManageVehiclePage(page);
+
+    // Recover from an interrupted run before deciding there is no fixture.
+    //
+    // This test blocks a vehicle and unblocks it again, so a run that dies
+    // between the two — the database dropped mid-test on 17 September — leaves
+    // the vehicle at 403 and every later run skips for want of an Active one.
+    // The suite then goes quietly green while a real vehicle sits blocked,
+    // which is worse than failing.
+    //
+    // Unblocking it here is not a workaround: restoring a vehicle to Active is
+    // precisely W-VEH-002, so the recovery exercises the same path the test
+    // would have.
+    if (!active) {
+      const stranded = fleet.find(v => v.VehicleStatus === 403);
+      if (stranded) {
+        console.log(
+          `${stranded.VehicleNo} is Blocked with no Active vehicle in the fleet — ` +
+            `recovering it from an interrupted run before starting.`
+        );
+        await vehicles.open('blockUnblock');
+        await vehicles.search(vehicles.blockVehicleNo, vehicles.blockSearch, stranded.VehicleNo);
+        await vehicles.toggleVehicleStatus(stranded.VehicleNo);
+
+        const recovered = await waitForStatus(stranded.VehicleNo, 401);
+        expect(
+          recovered.reached,
+          `${stranded.VehicleNo} was left Blocked by an earlier run and could ` +
+            `not be restored: it is ${describeStatus(recovered.actual ?? -1)}. ` +
+            `Unblocking is W-VEH-002, so this is a real failure of that case, ` +
+            `not merely a fixture problem — and the vehicle is still blocked.`
+        ).toBe(true);
+
+        active = (await vehiclesUnder(PARENT)).find(v => v.VehicleStatus === 401);
+      }
+    }
 
     test.skip(
       !active,
@@ -84,7 +120,6 @@ test.describe('Manage Vehicle @vehicle @regression', () => {
     await parameter('Vehicle', registration);
     console.log(`Blocking ${registration} (currently ${describeStatus(active!.VehicleStatus)})`);
 
-    const vehicles = new ManageVehiclePage(page);
     await vehicles.open('blockUnblock');
 
     const found = await vehicles.search(vehicles.blockVehicleNo, vehicles.blockSearch, registration);
@@ -207,7 +242,7 @@ test.describe('Manage Vehicle @vehicle @regression', () => {
     const vehicles = new ManageVehiclePage(page);
     await vehicles.open('purchaseLimit');
 
-    await vehicles.fillInput(vehicles.limitCustomerId, active!.CustomerID);
+    await vehicles.chooseLimitCustomer(active!.CustomerID);
     const found = await vehicles.search(vehicles.limitVehicleNo, vehicles.limitSearch, registration);
 
     expect(
