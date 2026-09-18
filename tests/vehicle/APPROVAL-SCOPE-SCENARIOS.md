@@ -193,6 +193,48 @@ one division; now every State Admin in the country is looking at the same queue,
 most of them meet a concurrent approval they will be told a vehicle they have never seen is
 assigned to their account.
 
+## Bulk mapping — the Bulk Upload tab
+
+"Bulk mapping" in the change request is the **Bulk Upload** tab on Add Vehicles (`#avTabBulk`);
+bulk DE-mapping is a separate "Bulk De-Map" control inside `/Vehicle/DeMapVehicle`. Neither is a
+menu entry of its own, which is why searching all 111 FP Admin menu items found nothing.
+
+The template is three columns — **Vehicle No | Branch ID | Vehicle Type** — and "Vehicle Type" is
+*ownership* (`Owned` / `Attached`), not fuel; anything else is refused with "Invalid Vehicle Type".
+
+The tab offers **no branch selector at all**. Manual Entry confines a parent admin to
+`#avBranchLocation`, a dropdown of its own branches; Bulk Upload moves the choice into a file the
+uploader writes. So the only thing standing between an uploader and someone else's fleet is a
+server-side check. There is one, and it is correct:
+
+| Uploader | Target branch | Outcome |
+|---|---|---|
+| Customer Admin of NAYAFP1023400246 (Noida) | NAYAFP2023400255 — **another customer** | **Rejected**: "You are not authorized to upload vehicles for this Branch UID." |
+| Ahmedabad I Division Admin (GJ_I / West) | NAYAFP2023400255 — Gurgaon, **another division** | **Accepted**: "Success" |
+
+That is exactly the intended shape. Customer-to-customer is still forbidden; division-to-division
+is open, which is the change request's "no mapping restrictions" for bulk mapping.
+
+Note the preview lies slightly on the way: the staged row reads **"Ready"** for a branch the server
+then refuses, because ownership is validated client-side and entitlement only at commit.
+
+### Open — a bulk-uploaded vehicle does not reach the approval queue
+
+Manual entry and bulk upload do not produce the same state:
+
+| Route | Resulting `RawVehiclesDetail.VehicleStatus` | In the approval queue? |
+|---|---|---|
+| Manual entry, Vahan failed | 411 Pending for Approval | yes |
+| **Bulk upload** | **409 Pending** | **no** |
+
+`DL4CNB1474` was uploaded successfully — "Successfully uploaded 1 vehicle(s). Pending for
+approval." — and is not findable in `/Vehicle/VehicleApproval` by customer id or by registration.
+It is the ONLY row at 409 in the database; the 146-row queue is built from 411.
+
+Bulk upload also performs no Vahan call at submit time, so 409 may be a hand-off to a verification
+job that had not run when this was measured. Under watch rather than reported as stuck — but it is
+the same shape as the nine 408 rows above, which have been waiting since June.
+
 ## Known gaps in this analysis
 
 - Only **listings** have been measured. No approval has been performed, so whether the *action*
