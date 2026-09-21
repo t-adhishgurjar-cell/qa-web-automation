@@ -3,7 +3,7 @@ import { test } from '../../src/fixtures/page.fixtures';
 import { description, epic, feature, owner, parameter, severity, story, tms } from 'allure-js-commons';
 import { ManageVehiclePage } from '../../src/pages/vehicle/manage-vehicle.page';
 import { PARENT_ADMIN } from '../../src/config/accounts';
-import { vehicle, vehiclesUnder, waitForStatus, describeStatus } from '../../src/helpers/vehicle-state.helper';
+import { vehiclesUnder, waitForStatus, describeStatus } from '../../src/helpers/vehicle-state.helper';
 
 /**
  * Manage Vehicle — W-VEH-001 to W-VEH-006 of the Web regression suite.

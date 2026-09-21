@@ -357,6 +357,11 @@ export class DbHelper {
         WHERE TABLE_NAME = @table
         ORDER BY ORDINAL_POSITION`,
       { table: bare }
-    ).then(rows => rows.map((r: any) => ({ column: r.column_name, type: r.data_type })));
+    ).then(rows =>
+      (rows as { column_name: string; data_type: string }[]).map(r => ({
+        column: r.column_name,
+        type: r.data_type,
+      }))
+    );
   }
 }

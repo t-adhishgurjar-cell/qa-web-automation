@@ -21,6 +21,46 @@ export abstract class BasePage {
     await this.page.waitForLoadState('domcontentloaded');
   }
 
+  /**
+   * Waits for whatever the last action started to finish.
+   *
+   * This replaces the fixed `waitForTimeout(600…3000)` calls that used to sit
+   * after every click in these page objects. A fixed sleep is wrong in both
+   * directions: it always costs its full duration even when the work took 80ms,
+   * and it still fails on the one slow run that needed more.
+   *
+   * Measured on this application before adopting it: `networkidle` settles in
+   * 509–1288ms across Add Vehicles, Manage Customer Users, De-Map Vehicle and
+   * after an in-grid search. Nothing polls persistently, so idle genuinely
+   * arrives rather than timing out — which is the condition that makes this a
+   * better wait rather than a slower one.
+   *
+   * Deliberately forgiving: a screen that never reaches idle should not fail
+   * here, it should fail on the assertion that follows, with that assertion's
+   * own message.
+   */
+  async settle(timeout = 8_000): Promise<void> {
+    await this.page.waitForLoadState('domcontentloaded', { timeout }).catch(() => undefined);
+    await this.page.waitForLoadState('networkidle', { timeout }).catch(() => undefined);
+  }
+
+  /**
+   * Waits for a Bootstrap modal to actually open, and says whether one did.
+   *
+   * Needed because this application keeps its dialogs in the DOM permanently —
+   * `.modal` is always present, so only `.modal.show` means "open". Code that
+   * slept and then looked was really waiting for this, one guessed duration at
+   * a time.
+   */
+  async waitForDialog(timeout = 6_000): Promise<boolean> {
+    return this.page
+      .locator('.modal.show')
+      .first()
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false);
+  }
+
   async getPageTitle(): Promise<string> {
     return this.page.title();
   }

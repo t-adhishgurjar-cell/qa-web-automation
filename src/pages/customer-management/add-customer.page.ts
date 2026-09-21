@@ -253,7 +253,7 @@ export class AddCustomerPage extends BasePage {
     }
 
     this.logger.info(`#${selectId} = ${selected}`);
-    await this.page.waitForTimeout(600);
+    await this.settle();
     return marker;
   }
 
@@ -414,13 +414,13 @@ export class AddCustomerPage extends BasePage {
       );
     }
 
-    await this.page.waitForTimeout(1200);
+    await this.settle();
     await this.dismissValidationDialogs();
     await this.uploadPanCard(data.uploadFile);
 
     // Declaring "not GST registered" needs the declaration document instead.
     await this.clickElement(this.gstRegisteredNo);
-    await this.page.waitForTimeout(600);
+    await this.settle();
     const gstDecl = this.page.locator('#GSTDeclUpload');
     if (await gstDecl.count()) await gstDecl.setInputFiles(data.uploadFile);
 
@@ -463,7 +463,7 @@ export class AddCustomerPage extends BasePage {
       const text = ((await this.page.locator(textSel).first().textContent().catch(() => '')) ?? '').trim();
       if (text) messages.push(text);
       await ok.click().catch(() => undefined);
-      await this.page.waitForTimeout(600);
+      await this.settle();
     }
 
     // The ids above do not cover everything: the draft confirmation is
@@ -482,7 +482,7 @@ export class AddCustomerPage extends BasePage {
       const button = modal.locator('button:visible, .btn:visible').first();
       if (!(await button.isVisible().catch(() => false))) break;
       await button.click().catch(() => undefined);
-      await this.page.waitForTimeout(800);
+      await this.settle();
     }
 
     if (messages.length) this.logger.info(`Dismissed dialog(s): ${messages.join(' | ')}`);
@@ -499,7 +499,7 @@ export class AddCustomerPage extends BasePage {
   async verifyCustomerMobile(mobile: string, otp: string): Promise<void> {
     await this.fillInput(this.customerMobile, mobile);
     await this.customerMobile.blur();
-    await this.page.waitForTimeout(1500);
+    await this.settle();
 
     const onEntry = await this.dismissValidationDialogs();
     if (onEntry.length) {
@@ -507,7 +507,7 @@ export class AddCustomerPage extends BasePage {
     }
 
     await this.clickElement(this.generateMobileOtp);
-    await this.page.waitForTimeout(2000);
+    await this.settle();
 
     const afterSend = await this.dismissValidationDialogs();
     const appeared = await this.mobileOtp
@@ -524,7 +524,7 @@ export class AddCustomerPage extends BasePage {
 
     await this.fillInput(this.mobileOtp, otp);
     await this.clickElement(this.verifyMobileOtp);
-    await this.page.waitForTimeout(1500);
+    await this.settle();
     await this.dismissValidationDialogs();
   }
 
@@ -551,7 +551,7 @@ export class AddCustomerPage extends BasePage {
   async saveAsDraft(): Promise<void> {
     this.logger.info('Save As Draft');
     await this.clickElement(this.saveAsDraftButton);
-    await this.page.waitForTimeout(2500);
+    await this.settle();
     // The confirmation is modal and blocks Next until it is acknowledged.
     await this.dismissValidationDialogs();
   }
@@ -620,7 +620,7 @@ export class AddCustomerPage extends BasePage {
   async saveBranch(): Promise<void> {
     this.logger.info('Save Branch');
     await this.clickElement(this.saveBranchButton);
-    await this.page.waitForTimeout(2500);
+    await this.settle();
     const said = await this.dismissValidationDialogs();
     if (said.length) this.logger.info(`Save Branch said: ${said.join(' | ')}`);
 
@@ -636,11 +636,11 @@ export class AddCustomerPage extends BasePage {
     if (await clear.isVisible().catch(() => false)) {
       this.logger.info('Clearing the open branch draft slot');
       await clear.click().catch(() => undefined);
-      await this.page.waitForTimeout(1000);
+      await this.settle();
       const confirm = this.page.locator('#confirmation-ok-btn');
       if (await confirm.isVisible().catch(() => false)) {
         await confirm.click();
-        await this.page.waitForTimeout(1000);
+        await this.settle();
       }
     }
   }
@@ -681,7 +681,7 @@ export class AddCustomerPage extends BasePage {
     this.logger.info(`#btnShowMeetingDetails ${nextState}`);
 
     await this.clickElement(this.branchNextButton);
-    await this.page.waitForTimeout(2500);
+    await this.settle();
     const said = await this.dismissValidationDialogs();
 
     const arrived = await this.page
@@ -726,10 +726,10 @@ export class AddCustomerPage extends BasePage {
     this.logger.info('Submitting application');
     await this.clickElement(this.submitButton);
     // A confirmation dialog follows; the recorded flow clicks Submit twice.
-    await this.page.waitForTimeout(1500);
+    await this.settle();
     const confirm = this.page.locator('#confirmation-ok-btn');
     if (await confirm.isVisible().catch(() => false)) await confirm.click();
-    await this.page.waitForTimeout(3000);
+    await this.settle();
   }
 
   /**

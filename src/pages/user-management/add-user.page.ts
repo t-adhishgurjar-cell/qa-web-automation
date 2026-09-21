@@ -120,7 +120,7 @@ export class AddUserPage extends BasePage {
     await this.mobile.pressSequentially(mobile, { delay: 20 });
     await this.mobile.blur();
     // The lookup is a network round trip; acting before it lands races the prefill.
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
   }
 
   /** Fills the identity fields, leaving anything the lookup prefilled intact. */
@@ -138,7 +138,7 @@ export class AddUserPage extends BasePage {
    */
   async selectUserType(type: SelectableUserType): Promise<void> {
     await this.userType.selectOption(type);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
 
     if (await this.selectedRoleIds.inputValue()) return;
 
@@ -186,7 +186,7 @@ export class AddUserPage extends BasePage {
 
     try {
       await this.clickElement(this.addButton);
-      await this.page.waitForTimeout(5_000);
+      await this.settle();
 
       const wentToLocationMapping = /UserLocationMapping/i.test(this.page.url());
       if (wentToLocationMapping) {
@@ -208,9 +208,9 @@ export class AddUserPage extends BasePage {
     await this.dismissSessionPrompts();
     await this.regionNodes.first().waitFor({ state: 'visible', timeout: 20_000 });
     await this.regionNodes.first().locator('div.d-flex').first().click();
-    await this.page.waitForTimeout(1_200);
+    await this.settle();
     await this.clickElement(this.saveLocationButton);
-    await this.page.waitForTimeout(5_000);
+    await this.settle();
   }
 
   /**
@@ -229,7 +229,7 @@ export class AddUserPage extends BasePage {
       if (await button.isVisible().catch(() => false)) {
         this.logger.info(`Dismissing ${selector}`);
         await button.click().catch(() => undefined);
-        await this.page.waitForTimeout(2_500);
+        await this.settle();
       }
     }
   }

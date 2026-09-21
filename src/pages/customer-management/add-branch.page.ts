@@ -122,7 +122,7 @@ export class AddBranchPage extends BasePage {
     this.logger.info(`Looking up parent customer ${customerId || '(blank)'}`);
     await this.fillInput(this.customerId, customerId);
     await this.customerId.blur();
-    await this.page.waitForTimeout(3_500);
+    await this.settle();
     await this.dismissAnyDialog();
 
     const name = (await this.customerName.inputValue().catch(() => '')).trim();
@@ -139,7 +139,7 @@ export class AddBranchPage extends BasePage {
   async selectBranchType(type: 'Fleet' | 'NonFleet'): Promise<void> {
     const label = type === 'Fleet' ? this.branchTypeFleet : this.branchTypeNonFleet;
     await this.clickElement(label);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
   }
 
   /**
@@ -154,7 +154,7 @@ export class AddBranchPage extends BasePage {
   async fillBranch(details: BranchDetails): Promise<string> {
     await this.fillInput(this.pinCode, details.pinCode);
     await this.pinCode.blur();
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
 
     const locationCode = (await this.branchLocationCode.inputValue().catch(() => '')).trim();
     this.logger.info(`Branch location code generated as "${locationCode}"`);
@@ -192,11 +192,11 @@ export class AddBranchPage extends BasePage {
   ): Promise<{ sent: boolean; verified: boolean; message: string }> {
     await this.fillInput(this.managerMobile, mobile);
     await this.managerMobile.blur();
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
 
     const onEntry = await this.dismissAnyDialog();
     await this.clickElement(this.generateOtpButton);
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
     const afterSend = await this.dismissAnyDialog();
 
     const sent = await this.managerMobileOtp
@@ -209,14 +209,14 @@ export class AddBranchPage extends BasePage {
     }
 
     await this.fillInput(this.managerMobileOtp, otp);
-    await this.page.waitForTimeout(1_000);
+    await this.settle();
 
     // Entering the OTP is not verifying it. usp_InsertCustomerBranchRequestByWeb
     // persists IsMobileVerified, and the form refuses to submit without it:
     // "Please verify manager mobile OTP before submitting the branch request."
     // The control does not exist until the OTP has been sent.
     await this.clickElement(this.verifyOtpButton);
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
     const afterOtp = await this.dismissAnyDialog();
 
     const stillOffering = await this.verifyOtpButton.isVisible().catch(() => false);
@@ -229,7 +229,7 @@ export class AddBranchPage extends BasePage {
 
   async submit(): Promise<string> {
     await this.clickElement(this.submitButton);
-    await this.page.waitForTimeout(4_000);
+    await this.settle();
     const message = (await this.messages()).join(' | ');
     await this.dismissAnyDialog();
     return message;
@@ -257,7 +257,7 @@ export class AddBranchPage extends BasePage {
     const said = ((await modal.textContent()) ?? '').replace(/\s+/g, ' ').trim();
     const close = modal.locator('button.btn-close, .btn-primary, .btn-secondary').first();
     await close.click({ timeout: 5_000 }).catch(() => undefined);
-    await this.page.waitForTimeout(800);
+    await this.settle();
     return said;
   }
 
@@ -266,7 +266,7 @@ export class AddBranchPage extends BasePage {
     await this.openApprovals();
     await this.fillInput(this.approvalParentId, parentCustomerId);
     await this.clickElement(this.approvalSearch);
-    await this.page.waitForTimeout(3_500);
+    await this.settle();
 
     const rows = await this.approvalTable.locator('tbody tr').allTextContents();
     return rows.map(r => r.replace(/\s+/g, ' ').trim()).filter(Boolean);

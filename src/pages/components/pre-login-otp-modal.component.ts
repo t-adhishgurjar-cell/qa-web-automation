@@ -194,24 +194,23 @@ export class PreLoginOtpModal {
    * defect itself.
    */
   async waitForError(field: 'username' | 'otp', timeout = 10_000): Promise<string> {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      const text = await this.errorFor(field);
-      if (text) return text;
-      await this.page.waitForTimeout(200);
-    }
-    return '';
+    // Waits on the element rather than polling in a loop. The error span exists
+    // in the DOM from page load and only gains text when the server complains,
+    // so "has any text" is the real condition — and Playwright retries it on its
+    // own clock instead of a guessed interval.
+    const locator = field === 'username' ? this.usernameError : this.otpError;
+    await expect(locator).toHaveText(/\S/, { timeout }).catch(() => undefined);
+    return this.errorFor(field);
   }
 
   /** Waits for a message on either step — whichever the dialog decides to use. */
   async waitForAnyError(timeout = 10_000): Promise<string> {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      const text = await this.anyError();
-      if (text) return text;
-      await this.page.waitForTimeout(200);
-    }
-    return '';
+    // Either span will do, so wait on the pair: .or() resolves as soon as one of
+    // them carries text, which is what the old poll loop was approximating.
+    await expect(this.usernameError.or(this.otpError).filter({ hasText: /\S/ }).first())
+      .toBeVisible({ timeout })
+      .catch(() => undefined);
+    return this.anyError();
   }
 
   /** Any message the modal is showing, across both steps. */

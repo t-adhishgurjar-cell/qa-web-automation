@@ -209,14 +209,34 @@ async function capture(page: Page): Promise<Buffer> {
   if (target <= viewport.height) return page.screenshot({ fullPage: true, timeout: 30_000 });
 
   await page.setViewportSize({ width: viewport.width, height: target });
-  // The resize reflows the layout and pulls in anything lazily rendered.
-  await page.waitForTimeout(700);
+  // The resize reflows the layout and pulls in anything lazily rendered. There is
+  // no request or element to wait on here — the condition is "the browser has
+  // laid out and painted" — so wait two animation frames, which is exactly that.
+  // A fixed sleep was approximating it at 700ms; this typically costs ~32ms.
+  await settleLayout(page);
   try {
     return await page.screenshot({ fullPage: true, timeout: 30_000 });
   } finally {
     await page.setViewportSize(viewport);
-    await page.waitForTimeout(300);
+    await settleLayout(page);
   }
+}
+
+/**
+ * Waits for the browser to lay out and paint after a viewport change.
+ *
+ * Two frames rather than one: the first is scheduled before the reflow the
+ * resize triggers, the second runs after it.
+ */
+async function settleLayout(page: Page): Promise<void> {
+  await page
+    .evaluate(
+      () =>
+        new Promise<void>(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    )
+    .catch(() => undefined);
 }
 
 function slugify(text: string): string {

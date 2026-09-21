@@ -68,7 +68,7 @@ export class CustomerStatusPage extends BasePage {
     this.logger.info(`Searching customer ${customerId || '(blank)'}`);
     await this.searchInput.fill(customerId);
     await this.clickElement(this.searchButton);
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
   }
 
   /**
@@ -133,7 +133,7 @@ export class CustomerStatusPage extends BasePage {
   async act(decision: 'confirm' | 'cancel'): Promise<{ action: string; message: string }> {
     const action = (await this.availableAction()) ?? '(none offered)';
     await this.clickElement(this.singleAction);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
 
     const button = decision === 'confirm' ? this.confirmOk : this.confirmCancel;
     await expect(
@@ -141,7 +141,7 @@ export class CustomerStatusPage extends BasePage {
       `The confirmation dialog did not appear after clicking ${action}.`
     ).toBeVisible({ timeout: 15_000 });
     await this.clickElement(button);
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
 
     const message = (await this.messages()).join(' | ');
     await this.dismissAnyDialog();
@@ -153,13 +153,13 @@ export class CustomerStatusPage extends BasePage {
     for (const control of [this.confirmOk, this.confirmClose]) {
       if (await control.isVisible().catch(() => false)) {
         await control.click({ timeout: 5_000 }).catch(() => undefined);
-        await this.page.waitForTimeout(800);
+        await this.settle();
       }
     }
     const generic = this.page.locator('.modal.show button.btn-close, .modal.show .btn-primary').first();
     if (await generic.isVisible().catch(() => false)) {
       await generic.click({ timeout: 5_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(500);
+      await this.settle();
     }
   }
 

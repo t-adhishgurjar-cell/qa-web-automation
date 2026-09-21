@@ -88,7 +88,7 @@ export class ApproveCustomerPage extends BasePage {
    */
   private async findRow(reference: string): Promise<boolean> {
     await this.quickFilter.fill(reference);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
 
     return expect
       .poll(async () => this.approvalLink(reference).count(), {
@@ -177,7 +177,7 @@ export class ApproveCustomerPage extends BasePage {
         continue;
       }
       await this.clickElement(tab);
-      await this.page.waitForTimeout(2_000);
+      await this.settle();
     }
 
     await expect(
@@ -192,7 +192,7 @@ export class ApproveCustomerPage extends BasePage {
     await this.fillInput(this.remarks.first(), reentry.remarks ?? 'Approved by automated regression run.');
 
     await this.clickElement(this.approveButton);
-    await this.page.waitForTimeout(2_000);
+    await this.settle();
 
     const refused = ((await this.remarksError.first().textContent().catch(() => '')) ?? '').trim();
     if (refused) throw new Error(`Approve was refused before submitting: ${refused}`);
@@ -228,7 +228,7 @@ export class ApproveCustomerPage extends BasePage {
 
     this.logger.info('Confirming the approval');
     await confirm.click();
-    await this.page.waitForTimeout(6_000);
+    await this.settle();
   }
 
   /**
@@ -251,7 +251,7 @@ export class ApproveCustomerPage extends BasePage {
 
     await this.fillInput(input, value);
     await this.clickElement(button);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
 
     await expect(
       button,
@@ -282,7 +282,7 @@ export class ApproveCustomerPage extends BasePage {
       const button = modal.locator('button:visible, .btn:visible').first();
       if (!(await button.isVisible().catch(() => false))) break;
       await button.click().catch(() => undefined);
-      await this.page.waitForTimeout(1_000);
+      await this.settle();
     }
 
     if (message) this.logger.info(`Approval dialog: ${message}`);

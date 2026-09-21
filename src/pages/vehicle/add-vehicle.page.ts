@@ -50,7 +50,7 @@ export class AddVehiclePage extends BasePage {
 
   async open(): Promise<void> {
     await this.navigateTo('/Vehicle/AddVehicles');
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
   }
 
   /**
@@ -79,7 +79,7 @@ export class AddVehiclePage extends BasePage {
       );
     }
 
-    await this.page.waitForTimeout(3_500);
+    await this.settle();
     return ((await this.customerName.inputValue().catch(() => '')) ?? '').trim();
   }
 
@@ -91,9 +91,9 @@ export class AddVehiclePage extends BasePage {
    */
   async addOne(registration: string, ownership = 'Owned'): Promise<AddVehicleResult> {
     await this.fillInput(this.numberOfVehicles, '1');
-    await this.page.waitForTimeout(600);
+    await this.settle();
     await this.clickElement(this.addButton);
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
 
     await this.fillInput(this.page.locator('#VehicleNo_1'), registration);
 
@@ -106,7 +106,7 @@ export class AddVehiclePage extends BasePage {
     const vahanStatus = body ? Number(body.vahanStatus) : null;
     this.logger.info(`Vahan for ${registration}: ${vahanStatus} ${body?.vahanStatusName ?? ''}`);
 
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
     await this.dismissModals();
 
     // Only fill what Vahan left blank and the form still allows.
@@ -127,7 +127,7 @@ export class AddVehiclePage extends BasePage {
     const addResponse = await submitted;
     const addBody = addResponse ? await addResponse.json().catch(() => null) : null;
 
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
     const shown = await this.dismissModals();
 
     return {
@@ -151,7 +151,7 @@ export class AddVehiclePage extends BasePage {
         .first();
       if (!(await ok.isVisible().catch(() => false))) break;
       await ok.click({ timeout: 8_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(2_000);
+      await this.settle();
     }
     return first;
   }

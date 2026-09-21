@@ -1,0 +1,43 @@
+---
+description: Branch naming, commit message, and QA epic conventions
+alwaysApply: true
+---
+
+# Branch Naming
+
+Format: `<type>/<JIRA-ID>-<short-description>`
+
+Valid type prefixes: `feature/`, `fix/`, `migration/`, `chore/`, `spike/`, `hotfix/`
+
+```
+feature/PAI-142-add-rate-limiter      ✅
+fix/PAI-211-null-pointer-login        ✅
+add-otp-verification                  ❌ no type, no Jira ID
+feature/customer-management           ❌ no Jira ID
+VehicleManagement                     ❌ no type, no Jira ID
+```
+
+# Commit Messages
+
+Every commit subject must start with the Jira ticket ID:
+
+```
+PAI-142: add rate limiter middleware   ✅
+wip                                    ❌
+misc fixes                             ❌
+updates                                ❌
+```
+
+- Use the ticket actively being worked: Story, Task, Sub-task, or Bug. Never an Epic.
+- Describe what changed; vague subjects are rejected in review.
+- Squash before merging to `main`, and the squashed commit must still carry the Jira ID.
+- CI rejects any commit without a valid Jira ID, so a missing ID fails the build.
+
+# Standalone QA Epics
+
+Create a separate epic when QA work can be independently released and measured:
+
+- General test automation frameworks (Selenium grid, API test harness) → Engineering Excellence → Test Automation
+- Regression suite overhauls not tied to one feature → Engineering Excellence → Test Automation
+
+Never use `Product Features` as the Work Category for a QA-only epic.

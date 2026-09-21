@@ -70,7 +70,7 @@ export class ManageVehiclePage extends BasePage {
 
   async open(screen: keyof typeof ManageVehiclePage.ROUTES): Promise<void> {
     await this.navigateTo(ManageVehiclePage.ROUTES[screen]);
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
     await this.dismissDialog();
   }
 
@@ -85,7 +85,7 @@ export class ManageVehiclePage extends BasePage {
   async search(field: Locator, button: Locator, registration: string): Promise<string[]> {
     await this.fillInput(field, registration);
     await this.clickElement(button);
-    await this.page.waitForTimeout(3_500);
+    await this.settle();
     await this.dismissDialog();
 
     const rows = await this.page.locator('tbody tr:visible').allTextContents();
@@ -127,7 +127,7 @@ export class ManageVehiclePage extends BasePage {
     // click. A refused change would fail as "checkbox did not become checked"
     // rather than as the status assertion the test actually cares about.
     await toggle.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2_000);
+    await this.settle();
 
     return { wasActive, message: await this.completeStatusChange(registration, wasActive) };
   }
@@ -159,7 +159,7 @@ export class ManageVehiclePage extends BasePage {
       await reason.fill(
         `Automated regression ${wasActive ? 'block' : 'unblock'} of ${registration} — W-VEH-00${wasActive ? '1' : '2'}`
       );
-      await this.page.waitForTimeout(500);
+      await this.settle();
     }
 
     const confirm = modal
@@ -178,7 +178,7 @@ export class ManageVehiclePage extends BasePage {
     }
 
     await confirm.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
 
     const outcome = await this.dismissDialog();
     return outcome || said;
@@ -208,7 +208,7 @@ export class ManageVehiclePage extends BasePage {
     }
 
     await control.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
     return this.confirmAndRead();
   }
 
@@ -232,7 +232,7 @@ export class ManageVehiclePage extends BasePage {
 
     if (await confirm.isVisible().catch(() => false)) {
       await confirm.click({ timeout: 10_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(3_000);
+      await this.settle();
       // Acting often raises a second modal reporting the outcome.
       const outcome = await this.dismissDialog();
       return outcome || said;
@@ -275,7 +275,7 @@ export class ManageVehiclePage extends BasePage {
     // Search button, swallowing the click.
     await this.page.keyboard.press('Escape');
     await this.clickElement(this.authSearch);
-    await this.page.waitForTimeout(3_500);
+    await this.settle();
     await this.dismissDialog();
 
     return this.page.evaluate(() => {
@@ -344,7 +344,7 @@ export class ManageVehiclePage extends BasePage {
     }
 
     this.logger.info(`Purchase-limit customer set to "${chosen}"`);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
     return chosen;
   }
 
@@ -359,7 +359,7 @@ export class ManageVehiclePage extends BasePage {
       .first()
       .click({ timeout: 5_000 })
       .catch(() => undefined);
-    await this.page.waitForTimeout(1_000);
+    await this.settle();
     return said;
   }
 }

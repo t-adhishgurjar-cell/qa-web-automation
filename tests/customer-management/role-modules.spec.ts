@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../../src/fixtures/page.fixtures';
 import { description, epic, feature, owner, parameter, severity, story } from 'allure-js-commons';
 import { PARENT_ADMIN, BRANCH_ADMIN } from '../../src/config/accounts';
-import { modulesFor, ModuleRole, RoleModule } from '../../src/data/role-modules.data';
+import { modulesFor, ModuleRole } from '../../src/data/role-modules.data';
 
 /**
  * Every module a Parent Admin and a Branch Admin can reach, exercised.

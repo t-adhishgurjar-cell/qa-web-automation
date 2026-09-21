@@ -67,7 +67,7 @@ export class ChangePasswordPage extends BasePage {
     await this.fillInput(this.newPassword, next);
     await this.fillInput(this.confirmPassword, next);
     await this.clickElement(this.submit);
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
 
     const modal = this.page.locator('.modal.show').first();
     if (await modal.isVisible().catch(() => false)) {
@@ -78,7 +78,7 @@ export class ChangePasswordPage extends BasePage {
         .first()
         .click({ timeout: 5_000 })
         .catch(() => undefined);
-      await this.page.waitForTimeout(1_500);
+      await this.settle();
       return said;
     }
 

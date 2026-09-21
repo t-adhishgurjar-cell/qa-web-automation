@@ -83,7 +83,7 @@ export class CustomerBankPage extends BasePage {
     this.logger.info(`Searching bank details for ${customerId || '(blank)'}`);
     await this.searchCustomerId.fill(customerId);
     await this.clickElement(this.searchButton);
-    await this.page.waitForTimeout(3_000);
+    await this.settle();
 
     if (!customerId.trim()) return false;
 
@@ -111,7 +111,7 @@ export class CustomerBankPage extends BasePage {
     await this.fillInput(this.ifscCode, details.ifscCode);
     if (details.chequeFile && (await this.chequeUpload.count())) {
       await this.chequeUpload.setInputFiles(details.chequeFile);
-      await this.page.waitForTimeout(1_500);
+      await this.settle();
     }
   }
 
@@ -129,7 +129,7 @@ export class CustomerBankPage extends BasePage {
       .filter({ hasText: /^\s*(submit|save|add bank account)\s*$/i })
       .first();
     await submit.click({ timeout: 20_000 });
-    await this.page.waitForTimeout(3_500);
+    await this.settle();
     const message = (await this.messages()).join(' | ');
     await this.dismissAnyDialog();
     return message;
@@ -155,7 +155,7 @@ export class CustomerBankPage extends BasePage {
       .first();
     if (await control.isVisible().catch(() => false)) {
       await control.click({ timeout: 5_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(800);
+      await this.settle();
     }
   }
 
@@ -184,7 +184,7 @@ export class CustomerBankPage extends BasePage {
    */
   async approve(bankDetailId: number | string, accountNumber: string): Promise<ApprovalOutcome> {
     await this.navigateTo(`/Financial/BankApprovalDetail?bankDetailId=${bankDetailId}`);
-    await this.page.waitForTimeout(2_000);
+    await this.settle();
 
     if (!(await this.approveButton.isVisible().catch(() => false))) {
       return {
@@ -201,7 +201,7 @@ export class CustomerBankPage extends BasePage {
     if (await this.verifyInput.isVisible().catch(() => false)) {
       await this.fillInput(this.verifyInput, accountNumber);
       await this.clickElement(this.verifyButton);
-      await this.page.waitForTimeout(2_000);
+      await this.settle();
       verified = await this.verifyButton
         .textContent()
         .then(t => /verified/i.test(t ?? ''))
@@ -216,14 +216,14 @@ export class CustomerBankPage extends BasePage {
     }
 
     await this.clickElement(this.approveButton);
-    await this.page.waitForTimeout(2_500);
+    await this.settle();
 
     const confirm = this.page
       .locator('#confirmation-ok-btn, .modal.show .btn-primary')
       .first();
     if (await confirm.isVisible().catch(() => false)) {
       await confirm.click({ timeout: 10_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(2_500);
+      await this.settle();
     }
 
     const message = (await this.messages()).join(' | ');

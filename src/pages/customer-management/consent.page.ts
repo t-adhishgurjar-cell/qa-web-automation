@@ -80,7 +80,7 @@ export class ConsentPage extends BasePage {
   async give(otp: string): Promise<void> {
     this.logger.info('Acknowledging the terms and conditions');
     await this.clickElement(this.continueButton);
-    await this.page.waitForTimeout(1_500);
+    await this.settle();
 
     await this.termsCheckbox.check();
     await expect(

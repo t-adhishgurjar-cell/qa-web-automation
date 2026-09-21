@@ -227,7 +227,7 @@ export class LoginPage extends BasePage {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
         if (Object.keys(await this.getErrorMessages()).length > 0) return;
-        await this.page.waitForTimeout(500);
+        await this.settle();
       }
     })();
 
@@ -457,7 +457,7 @@ export class LoginPage extends BasePage {
     while (Date.now() < deadline) {
       seen = await this.getErrorMessages();
       if (Object.values(seen).some(text => pattern.test(text))) return;
-      await this.page.waitForTimeout(500);
+      await this.settle();
     }
 
     const observed = Object.keys(seen).length

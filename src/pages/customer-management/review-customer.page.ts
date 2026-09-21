@@ -115,7 +115,7 @@ export class ReviewCustomerPage extends BasePage {
         // an element the user clicks happily.
         await this.page.locator(`label[for="${id}"]`).click({ timeout: 5_000 }).catch(() => undefined);
       });
-      await this.page.waitForTimeout(400);
+      await this.settle();
 
       if (await box.isChecked().catch(() => false)) ticked.push(id);
       else refused.push(id);
@@ -167,7 +167,7 @@ export class ReviewCustomerPage extends BasePage {
       if (!(await next.isVisible().catch(() => false))) break;
 
       await next.click({ timeout: 10_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(2_500);
+      await this.settle();
       steps += 1;
 
       const said = await this.dismissDialog();
@@ -195,7 +195,7 @@ export class ReviewCustomerPage extends BasePage {
     // rendered it yet, and reading the button list without scrolling gives a
     // misleading picture of what this screen offers.
     await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await this.page.waitForTimeout(1_200);
+    await this.settle();
 
     const offered = await this.page.evaluate(() =>
       Array.from(
@@ -233,13 +233,13 @@ export class ReviewCustomerPage extends BasePage {
       const label = ((await finish.textContent()) ?? '').replace(/\s+/g, ' ').trim();
       this.logger.info(`Completing the review with "${label}"`);
       await finish.click({ timeout: 10_000 }).catch(() => undefined);
-      await this.page.waitForTimeout(3_000);
+      await this.settle();
 
       // Accept the confirmation first — it is a question, not a result.
       const confirmed = await this.acceptConfirmation();
       if (confirmed) {
         this.logger.info(`Confirmed: "${confirmed}"`);
-        await this.page.waitForTimeout(3_000);
+        await this.settle();
       }
 
       const said = await this.dismissDialog();
@@ -277,7 +277,7 @@ export class ReviewCustomerPage extends BasePage {
     const existing = ((await this.remarks.inputValue().catch(() => '')) ?? '').trim();
     if (existing) return;
     await this.remarks.fill(remark, { timeout: 10_000 }).catch(() => undefined);
-    await this.page.waitForTimeout(300);
+    await this.settle();
   }
 
   /**
@@ -302,7 +302,7 @@ export class ReviewCustomerPage extends BasePage {
     if (!(await yes.isVisible().catch(() => false))) return '';
 
     await yes.click({ timeout: 10_000 }).catch(() => undefined);
-    await this.page.waitForTimeout(1_000);
+    await this.settle();
     return asked;
   }
 
@@ -340,7 +340,7 @@ export class ReviewCustomerPage extends BasePage {
       : modal.locator('button.btn-close:visible').first();
 
     await target.click({ timeout: 5_000 }).catch(() => undefined);
-    await this.page.waitForTimeout(1_000);
+    await this.settle();
     return said;
   }
 }
