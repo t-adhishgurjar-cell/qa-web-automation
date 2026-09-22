@@ -139,6 +139,44 @@ export class AddCustomerPage extends BasePage {
     await this.saveAsDraftButton.waitFor({ state: 'visible', timeout: 30_000 });
   }
 
+  /**
+   * Searches the onboarding list for one reference, and says whether it is there.
+   *
+   * Written for scope tests, so the three ways this can go are kept apart rather
+   * than collapsed into a boolean:
+   *
+   *   { reachable: false } — the role cannot open the list at all
+   *   { reachable: true, found: false } — it can, and the application is not in it
+   *   { reachable: true, found: true } — it can, and it is
+   *
+   * A role that is refused the screen and a role that is shown an empty screen are
+   * different findings, and a test that cannot tell them apart reports the wrong
+   * one. Searching by reference rather than reading the grid also avoids the trap
+   * that caught the vehicle suite: a grid still rendering "Loading..." counts as a
+   * row, so "nothing found" and "not drawn yet" look identical.
+   */
+  async findInOnboardingList(reference: string): Promise<{ reachable: boolean; found: boolean }> {
+    await this.gotoList();
+    await this.settle();
+
+    if (!(await this.listReferenceFilter.isVisible().catch(() => false))) {
+      this.logger.warn(`The onboarding list did not render its search for this role.`);
+      return { reachable: false, found: false };
+    }
+
+    await this.fillInput(this.listReferenceFilter, reference);
+    await this.clickElement(this.listSearchButton);
+    await this.settle();
+
+    // The reference as a cell, not as page text: it also appears in the filter
+    // that was just typed into, and "the page contains the number" would then be
+    // true for every role regardless of what the grid holds.
+    const row = this.page.locator('table tbody tr').filter({ hasText: reference });
+    const found = await row.first().isVisible().catch(() => false);
+    this.logger.info(`Reference ${reference} ${found ? 'is' : 'is not'} in this role's onboarding list.`);
+    return { reachable: true, found };
+  }
+
   /** Alias kept for readability where the entry path is the point of the test. */
   async openWizardFromList(): Promise<void> {
     await this.gotoWizard();
@@ -268,6 +306,27 @@ export class AddCustomerPage extends BasePage {
   async enterAddressPinCode(pinCode: string): Promise<void> {
     await this.fillInput(this.addressPinCode, pinCode);
     await this.addressPinCode.blur();
+  }
+
+  /**
+   * Waits for the pin code lookup to fill the state, and says whether it did.
+   *
+   * settle() is not enough after entering a pin code, and the way it fails is
+   * quiet. The lookup is fired by the field's blur handler, so the request has
+   * often not started when settle() checks — networkidle is already true, settle
+   * returns at once, and the state field is read while still empty. A test that
+   * then asserts "the pin code resolved" reports that it did not, which for this
+   * screen reads exactly like the division-based restriction it was written to
+   * detect. That mistake was made here and cost three false failures.
+   *
+   * Returns false rather than throwing: an unresolvable pin code legitimately
+   * never fills the field, and OD-13 asserts precisely that.
+   */
+  async waitForResolvedLocation(timeout = 15_000): Promise<boolean> {
+    return expect(this.addressState)
+      .toHaveValue(/\S/, { timeout })
+      .then(() => true)
+      .catch(() => false);
   }
 
   // ─── Assertions ───────────────────────────────────────────────────────────
@@ -442,6 +501,117 @@ export class AddCustomerPage extends BasePage {
     await this.fillInput(this.bankAccountNumber, data.bankAccountNumber);
     await this.fillInput(this.ifscCode, data.ifscCode);
     await this.uploadBankProof(data.uploadFile);
+  }
+
+  /**
+   * Fills Basic Information for an OD enrolment, which is a different form.
+   *
+   * OD is not "Fleet without the division". Measured on webqa: Fleet renders 38
+   * visible fields on this step, OD renders 29, and the two sets differ in both
+   * directions. Hidden for OD: business name, business email, business type, the
+   * GST declaration, ID proof type and number, customer segment, buying pattern,
+   * the whole maker block — and the division. Shown for OD and not for Fleet: the
+   * entire address block, which for other customer types lives on step 2.
+   *
+   * Eighteen of the fields OD hides are still marked data-val-required, so driving
+   * this form with the Fleet path does not fail cleanly — it waits for a control
+   * that will never be visible and times out on whichever one it reaches first.
+   *
+   * The bank block is not required for OD and is filled only when present.
+   */
+  async fillOdBasicInformation(data: OdBasicInformation): Promise<void> {
+    this.logger.info('Filling Basic Information for OD');
+
+    await this.selectDropdown('CustomerTypeID', { label: 'OD' });
+    await this.selectDropdown('CustomerSubTypeID', {});
+
+    // The sub-type list is a child of the customer type and reloads when it
+    // changes, which can land *after* a selection has been made and blank it. The
+    // form does not flag the empty sub-type at the time; it refuses at submit with
+    // the inline "Select Customer Sub Type", by which point the maker has filled
+    // the whole form. Seen on the Fleet -> OD path, not on a clean OD form.
+    await this.settle();
+    if ((await this.customerSubType.inputValue()) === '0') {
+      this.logger.warn('The customer sub-type was blanked by a cascade reload — choosing again.');
+      await this.selectDropdown('CustomerSubTypeID', {});
+    }
+
+    await this.selectDropdown('CustStateID', data.state ? { label: data.state } : {});
+
+    // No division is chosen: OD does not offer one. That is the change under test,
+    // so this deliberately does not reach for the control even though it exists.
+
+    // The address is part of step 1 for OD.
+    await this.enterAddressPinCode(data.pinCode);
+    await expect(
+      this.addressState,
+      `The pin code ${data.pinCode} never resolved, so the address cannot be ` +
+        `completed. For an OD enrolment this is where a division-based pin code ` +
+        `restriction would show itself.`
+    ).not.toHaveValue('', { timeout: 20_000 });
+    await this.fillInput(this.businessAddress, data.businessAddress);
+    await this.selectDropdown('AddressProofType', { avoid: /^others$/i });
+    await this.fillInput(this.page.locator('#AddressProofNo'), data.addressProofNumber);
+    await this.uploadAddressProof(data.uploadFile);
+
+    await this.fillInput(this.customerName, data.customerName);
+    await this.selectDropdown('CustomerLanguagePreference', {});
+    await this.fillInput(this.customerEmail, data.customerEmail);
+
+    // PAN before the mobile: both are validated against the server on blur, and
+    // each raises its own modal, which swallows the next click if left open.
+    await this.fillInput(this.panDob, data.panDob);
+    await this.fillInput(this.panNumber, data.panNumber);
+    // The PAN is validated by the field's blur handler, not at submit, and the
+    // application refuses the whole form until that has happened: "Please validate
+    // the PAN number before submission. Tab out of the PAN field after entering
+    // it." Filling the input alone does not fire it, so a form that looks complete
+    // is rejected with a message about a field that is visibly filled in.
+    await this.panNumber.blur();
+    await this.settle();
+    await this.waitForDialog(3_000);
+    await this.dismissValidationDialogs();
+    // Uploaded on presence, not visibility. File inputs on this form are styled
+    // out of sight behind a "Browse" control, so a visibility check skips them
+    // silently — and the form then refuses at Submit with the inline message
+    // "Upload PAN Card document." while every visible field is filled in.
+    if (await this.panUpload.count()) await this.uploadPanCard(data.uploadFile);
+
+    await this.verifyCustomerMobile(data.customerMobile, data.otp);
+
+    if (await this.isVisible(this.bankName)) {
+      await this.fillInput(this.bankName, data.bankName);
+      await this.fillInput(this.bankAccountHolder, data.bankAccountHolder);
+      await this.fillInput(this.bankAccountNumber, data.bankAccountNumber);
+      await this.fillInput(this.ifscCode, data.ifscCode);
+      await this.uploadBankProof(data.uploadFile);
+    }
+  }
+
+  /**
+   * Submits an OD application.
+   *
+   * OD is a single-step form. Measured on webqa: with OD chosen, the only footer
+   * controls the page renders are "Save As Draft" and "Submit" — #btnTab1Next,
+   * #btnShowOfficialDetails, #btnShowMeetingDetails and #btnAdd are all present in
+   * the DOM and all hidden, because OD has no Address, Branch or Meeting step to
+   * advance to. So the multi-step path used for every other customer type does not
+   * merely take a different route here, it waits on a control that never appears.
+   *
+   * The visible Submit carries no id, hence the role lookup rather than a selector.
+   */
+  async submitOd(): Promise<void> {
+    this.logger.info('Submitting OD application');
+    // Matched on visible text rather than by role or id: the control carries no
+    // id, and #btnAdd — the Submit every other customer type uses — is present and
+    // hidden on this same form, so anything less specific finds the wrong one.
+    // The regex tolerates surrounding whitespace because hasText matches the
+    // element's textContent untrimmed.
+    const submit = this.page
+      .locator('button:visible, a.btn:visible, input[type="submit"]:visible')
+      .filter({ hasText: /^\s*submit\s*$/i })
+      .first();
+    await this.clickElement(submit);
   }
 
   /**
@@ -813,6 +983,26 @@ export class AddCustomerPage extends BasePage {
    */
   static readonly TEST_PAN = 'ABCPA1234F';
 
+  /**
+   * A PAN no customer holds yet.
+   *
+   * TEST_PAN is spent. /Customer/ValidatePanNumber answers it with
+   * {"status":1,"isValid":0} and the field shows "PAN already exists", which the
+   * form then reports at submit as "Please validate the PAN number before
+   * submission. Tab out of the PAN field after entering it" — a message about the
+   * wrong thing entirely, since the field had been filled and tabbed out and the
+   * real objection is that the PAN is taken. A fixed PAN works exactly once per
+   * environment, so tests that create a customer need a fresh one.
+   *
+   * Shaped as the format demands: five letters, four digits, one letter, with the
+   * fourth letter carrying the entity type — P for an individual, C for a company.
+   */
+  static freshPan(entity: 'P' | 'C' = 'P'): string {
+    const letter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
+    const digits = String(Date.now()).slice(-4);
+    return `${letter()}${letter()}${letter()}${entity}${letter()}${digits}${letter()}`;
+  }
+
   /** The base PAN adjusted to whatever the selected business type will accept. */
   static panForBusinessType(entityId: string, base: string = AddCustomerPage.TEST_PAN): string {
     const allowed = AddCustomerPage.PAN_ENTITY_RULES[entityId];
@@ -885,6 +1075,25 @@ export interface BasicInformation {
   customerMobile: string;
   otp: string;
   idProofNumber: string;
+  bankName: string;
+  bankAccountHolder: string;
+  bankAccountNumber: string;
+  ifscCode: string;
+  uploadFile: string;
+}
+
+/** Basic Information as OD renders it — see fillOdBasicInformation. */
+export interface OdBasicInformation {
+  state?: string;
+  pinCode: string;
+  businessAddress: string;
+  addressProofNumber: string;
+  panNumber: string;
+  panDob: string;
+  customerName: string;
+  customerEmail: string;
+  customerMobile: string;
+  otp: string;
   bankName: string;
   bankAccountHolder: string;
   bankAccountNumber: string;
