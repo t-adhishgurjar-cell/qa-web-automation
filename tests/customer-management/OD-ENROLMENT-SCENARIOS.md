@@ -119,7 +119,7 @@ That is the real risk, and it needs an approved post-fix OD customer to test.
 | An OD application carries the dummy division for its state | **works** — 54 for HR_HP_PB, 57 for UP_UK |
 | OD still reviewable and approvable | **works** — 1000514956 is Active |
 | Division level stops applying to OD visibility | **works** — a division admin is no longer excluded by division |
-| Region and state still apply to OD visibility | **FAILS on View Onboarding** — FP-OD-1, control needs restoring |
+| Region and state still apply to OD visibility | **FAILS on View Onboarding** — FP-OD-1, demonstrated 6 officers / 2 regions |
 
 ### Are other customer types hampered? — one issue
 
@@ -153,6 +153,29 @@ Both symptoms are the same cause, and FP-OD-3 rests on the deterministic one.
 | FP-OD-3 | **P1** | Changing the customer type or business state does not reload the dependent dropdown. Fleet's sub-type survives into OD and blocks submit with "Select Customer Sub Type" beside a filled dropdown. Also lets a Fleet application carry a division from another state |
 | FP-OD-4 | P3 | The hidden division keeps its value under OD (`17`). Does not reach the database |
 | FP-OD-5 | P2 | A duplicate PAN is reported as "validate the PAN before submission" |
+
+### The two-region demonstration
+
+Two OD applications, same maker, differing only in business state — Ahmedabad (GJ_I,
+region 4, dummy division 61) and Kolkata (WB_NE, region 1, dummy division 53) — read by
+the six officers who cover those two hierarchies. Each application is the other's
+control, so nothing rests on how a different customer type is treated.
+
+| Officer | Scope | Own region's OD | Other region's OD |
+|---|---|---|---|
+| Ahmedabad Region Admin | region 4, West | visible | **visible** |
+| Ahmedabad State Admin | region 4, state 11 | visible | **visible** |
+| Ahmedabad I Division Admin | region 4, state 11, division 1 | visible | **visible** |
+| Kolkata Region Admin | region 1, East | visible | **visible** |
+| Kolkata State Admin | region 1, state 3 | visible | **visible** |
+| Kolkata Division Admin | region 1, state 3, division 26 | visible | **visible** |
+
+Six officers, three scope levels, two regions, no variation at all. The division admins
+correctly see their own region's OD application despite it carrying the state's dummy
+division rather than theirs — the division level has stopped restricting, as asked. What
+has also stopped is region and state.
+
+Reproduction: `od-hierarchy-two-regions.spec.ts`, 6 of 6 failing symmetrically.
 
 ### The hierarchy question, answered
 

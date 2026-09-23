@@ -40,8 +40,9 @@ exception is FP-OD-3, which does reach the Fleet path.
 
 ## FP-OD-1 — P1 — On View Onboarding, OD applications are not filtered by the officer's location
 
-**Type:** Bug **Priority:** P1 **Confidence:** needs one more measurement — see Control
-**Component:** Customer Management / OD
+**Type:** Bug **Priority:** P1 **Component:** Customer Management / OD
+**Reproduction:** `tests/customer-management/od-hierarchy-two-regions.spec.ts` — 6 of 6
+officers fail, symmetrically
 
 ### Summary
 On View Onboarding (`/Customer/CustomerOnboardingStatus`), OD applications appear
@@ -56,67 +57,69 @@ carrying dummy division 57, `OD Default - UP_UK`, which belongs to a different s
 That dummy would have been enough to filter on.
 
 ### Steps to reproduce
-1. Sign in as territory admin `9612200200` — mapped to region 2, business state 4
-   (HR_HP_PB), division 17 (Gurgaon).
-2. Open **Customer Management → View Onboarding** (`/Customer/CustomerOnboardingStatus`).
-3. Read the reference numbers listed, and look each one up in
-   `dbo.RawCustomerMaster` joined to `dbo.BusinessStateMaster`.
+1. As a DSA, raise one OD application with business state **GJ_I** and another with
+   **WB_NE**. Confirm each stored against its state's dummy division — 61 and 53.
+2. Sign in as the Ahmedabad Region Admin `9072986100` (region 4, West).
+3. Open **Customer Management → View Onboarding** (`/Customer/CustomerOnboardingStatus`).
+4. Both references are listed. The WB_NE one is in region 1, East.
+5. Repeat for the other five officers in the table below.
 
 ### Expected
-OD applications in region 2, state 4 — any division, including none. That is the
-change as requested: the division stops mattering, the region and state do not.
+An officer sees the OD applications in their own region and state, whatever division
+those carry. That is the change as requested: the division stops mattering, the region
+and state do not.
 
 ### Actual
-Territory admin `9612200200`, scoped to region 2 / state 4 / division 17, sees 8 OD
-applications of which **5 are outside its region or state**:
-
-| Reference | Type | Region | State | Division | Verdict |
-|---|---|---|---|---|---|
-| 1000514867 | Fleet | 2 | 4 | 17 | in scope — control |
-| 1000514858 | Fleet | 2 | 4 | 17 | in scope — control |
-| 1000514849 | OD | 2 | **7** | 34 | wrong state |
-| 1000514873 | OD | 2 | **7** | 15 | wrong state |
-| 1000514956 | OD | 2 | **7** | 0 | wrong state |
-| 1000514871 | OD | **4** | **11** | 1 | wrong region and state |
-| 1000514939 | OD | **4** | **11** | 0 | wrong region and state |
-
-Division admin `9073139002`, scoped to region 4 / state 11 / division 1, sees 10 OD
-applications of which **7 are outside its region or state** — including references in
-regions 1 and 2 and states 3, 4 and 7. Its only non-OD row, 1000514729, is its own
-division 1.
-
-In both cases the count of non-OD applications outside scope is **zero**.
+Every officer sees every OD application, including those from another region and zone.
+See the table below.
 
 ### Evidence
 `tests/customer-management/od-hierarchy-visibility.spec.ts`. Its scope predicate
 ignores the division for OD and applies all three levels to everything else, so the
 failure is specifically about region and state.
 
-### Control — why this is not yet marked confirmed
-The claim needs non-OD applications on the same screen, proving the screen filters
-anybody at all. On the first measurement it had them, and they were all inside the
-officer's own division:
+### The demonstration — two OD applications, two regions, six officers
 
-  territory admin  Fleet 1000514867, 1000514858 — both state 4, division 17
-  division admin   Fleet 1000514729 — state 11, division 1
+Two OD applications were raised by the same DSA, differing only in business state, and
+each was confirmed stored against the dummy division for its state before any
+visibility was judged:
 
-It no longer has them. View Onboarding lists only its ten most recent applications —
-pagination does not advance it and its date filter is a datepicker that ignores a
-programmatic fill — and this suite's own OD applications now occupy all ten. So the
-test currently stops at "the control is empty" rather than reporting the leak, which
-is the correct behaviour and is why the finding is not marked confirmed.
+| Reference | Place | Business state | Region | Division stored |
+|---|---|---|---|---|
+| 1000514990 | Ahmedabad | 11 (GJ_I) | 4 — West | 61, `OD Default - GJ_I` |
+| 1000514991 | Kolkata | 3 (WB_NE) | 1 — East | 53, `OD Default - WB_NE` |
 
-To close this: raise one Fleet application from the same DSA, which lands in division
-17 / state 4 and will be among the ten most recent. It should then be visible to the
-territory admin and **not** to the Ahmedabad division admin. That single row restores a
-deterministic control, in both directions, and settles the ticket either way.
+Each officer should see the application from their own region and not the other's. The
+second half is the control, and it needs no third customer type: the two applications
+are each other's control, and the same officer is measured on both in the same run.
 
-A contrast worth recording, measured on Approved Customers
-(`/Customer/ManageCustomers`) where the control cannot run dry — 104,740 Fleet
-customers against 135 OD: **no OD customer leaks there.** For the Ahmedabad division
-admin, 2 OD customers were listed and both were within region and state. So whatever
-exempts OD appears specific to the in-flight applications screen, not to customers in
-general.
+| Officer | Scope | Own region's OD | Other region's OD |
+|---|---|---|---|
+| Ahmedabad Region Admin `9072986100` | region 4 (West) | visible | **visible** — should not be |
+| Ahmedabad State Admin `9073068501` | region 4, state 11 | visible | **visible** — should not be |
+| Ahmedabad I Division Admin `9073139002` | region 4, state 11, division 1 | visible | **visible** — should not be |
+| Kolkata Region Admin `9073209903` | region 1 (East) | visible | **visible** — should not be |
+| Kolkata State Admin `9073275904` | region 1, state 3 | visible | **visible** — should not be |
+| Kolkata Division Admin `9073340105` | region 1, state 3, division 26 | visible | **visible** — should not be |
+
+**Every officer sees both.** Six officers, three scope levels, two regions, and not one
+variation between them — which is what "no location filter is applied to OD" looks like.
+Note also that the division admins do correctly see their own region's OD application
+even though it carries the state's dummy division rather than their own: the division
+level has stopped restricting OD, exactly as asked.
+
+The dummy division makes the remaining fix cheap. Each dummy belongs to one business
+state — 61 is GJ_I, 53 is WB_NE — so filtering on it gives precisely the intended
+behaviour: the division stops restricting, the state still does.
+
+### What the same screen does with other customer types
+Measured on an earlier run, before this suite's OD applications filled the grid's ten
+rows: the Gurgaon territory admin's non-OD rows were Fleet 1000514867 and 1000514858,
+both in its own state 4 and division 17; the Ahmedabad division admin's was Fleet
+1000514729, its own state 11 and division 1. None outside scope. So the screen does
+filter other customer types and OD is escaping that filter — though note this control
+comes from a different run than the table above, because View Onboarding lists only its
+ten most recent applications.
 
 ### Notes
 Three things to weigh before fixing:
