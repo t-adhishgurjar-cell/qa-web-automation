@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import * as path from 'path';
-import { test } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/session.fixtures';
 import { epic, feature, story, severity, description, owner, tms } from 'allure-js-commons';
 import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
 import { ONBOARDING_MAKER, TEST_OTP } from '../../src/config/accounts';
@@ -20,10 +20,9 @@ import { runTag } from '../../src/helpers/test-identity';
  * account is configured separately rather than taken from the credentials sheet.
  */
 
-test.use({ storageState: { cookies: [], origins: [] } });
+test.use({ sessionAccount: ONBOARDING_MAKER });
 test.describe.configure({ mode: 'serial' });
 
-const { username: USER, password: PASS } = ONBOARDING_MAKER;
 const OTP = TEST_OTP;
 const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
 
@@ -38,15 +37,10 @@ function testMobile(): string {
 }
 
 test.describe('Customer Onboarding @customer-management @regression', () => {
-  test.beforeEach(async ({ loginPage, dashboardPage }) => {
+  test.beforeEach(async () => {
     await epic('Customer Management');
     await feature('Add Customer');
     await owner('QA Team');
-
-    await loginPage.navigate();
-    await loginPage.login(USER, PASS);
-    // The post-OTP redirect must finish before navigating, or the next request aborts.
-    await dashboardPage.assertDashboardLoaded();
   });
 
   test('submits a complete customer onboarding application @sanity', async ({ addCustomerPage, page }) => {

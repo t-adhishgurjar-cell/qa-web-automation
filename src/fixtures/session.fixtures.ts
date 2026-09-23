@@ -1,8 +1,9 @@
-import { Page } from '@playwright/test';
+import { Browser, BrowserContext, Page } from '@playwright/test';
 import { test as base } from './page.fixtures';
 import { LoginPage } from '../pages/login.page';
 import { DashboardPage } from '../pages/dashboard.page';
-import { FP_ADMIN } from '../config/accounts';
+import { RoleSelector } from '../pages/user-type-selection.page';
+import { Account, FP_ADMIN } from '../config/accounts';
 
 /**
  * One login per worker instead of one per test.
@@ -35,12 +36,70 @@ import { FP_ADMIN } from '../config/accounts';
  *
  * Only suites that import from here are affected; auth.setup and the smoke tests
  * that exercise the login screen itself keep their own fresh contexts.
+ *
+ * ── Choosing the account ──────────────────────────────────────────────────
+ * The session signed in as FP_ADMIN and nothing else, which is why the suites
+ * that need a parent admin, a DSA or a divisional officer kept logging in per
+ * test and paid the 23.6 seconds every time. A spec now names its account:
+ *
+ *   test.use({ sessionAccount: PARENT_ADMIN });
+ *
+ * Specs that drive several accounts in one file take `sessionFor` instead and
+ * ask for each one; the worker holds a session per account and reuses it.
  */
 
-type SessionFixtures = {
-  /** A logged-in page, shared by every test in this worker. */
-  sessionPage: Page;
+/** An account, plus the role card to pick when the login offers a choice. */
+export type SessionAccount = Account & { roleCode?: RoleSelector };
+
+type SessionOptions = {
+  /** The account `sessionPage` signs in as. Override per spec with test.use(). */
+  sessionAccount: SessionAccount;
 };
+
+type SessionFixtures = {
+  /** A logged-in page for `sessionAccount`, shared by every test in this worker. */
+  sessionPage: Page;
+  /**
+   * A logged-in page for any account, reused for the life of the worker.
+   *
+   * For specs that need more than one account. Asking twice for the same
+   * account returns the same page rather than signing in again.
+   */
+  sessionFor: (account: SessionAccount) => Promise<Page>;
+};
+
+/** One open, signed-in context. */
+interface HeldSession {
+  context: BrowserContext;
+  page: Page;
+}
+
+/** Distinguishes the two role cards behind a single mobile number. */
+function keyFor(account: SessionAccount): string {
+  return `${account.username}\u0000${account.roleCode ?? ''}`;
+}
+
+async function signIn(
+  browser: Browser,
+  account: SessionAccount,
+  baseURL: string | undefined,
+  viewport: { width: number; height: number }
+): Promise<HeldSession> {
+  const context = await browser.newContext({ baseURL, viewport });
+  const page = await context.newPage();
+
+  try {
+    const loginPage = new LoginPage(page);
+    await loginPage.navigate();
+    await loginPage.login(account.username, account.password, account.roleCode);
+    await new DashboardPage(page).assertDashboardLoaded();
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+
+  return { context, page };
+}
 
 /**
  * No test-scoped fixtures are added here — only the built-in `page` is
@@ -50,29 +109,49 @@ type SessionFixtures = {
  */
 type NoAddedTestFixtures = Record<never, never>;
 
-export const test = base.extend<NoAddedTestFixtures, SessionFixtures>({
-  sessionPage: [
+export const test = base.extend<NoAddedTestFixtures, SessionOptions & SessionFixtures>({
+  sessionAccount: [FP_ADMIN, { scope: 'worker', option: true }],
+
+  sessionFor: [
     async ({ browser }, use, workerInfo) => {
       // baseURL has to be passed explicitly: a context built here does not
       // inherit the project's `use` block the way the built-in page fixture
       // does, and without it every relative goto fails as an invalid URL.
       const baseURL = workerInfo.project.use.baseURL ?? process.env.BASE_URL;
-      const context = await browser.newContext({
-        baseURL,
-        viewport: workerInfo.project.use.viewport ?? { width: 1280, height: 720 },
-      });
-      const page = await context.newPage();
+      const viewport = workerInfo.project.use.viewport ?? { width: 1280, height: 720 };
+      const held = new Map<string, HeldSession>();
 
-      try {
-        const loginPage = new LoginPage(page);
-        const dashboardPage = new DashboardPage(page);
-        await loginPage.navigate();
-        await loginPage.login(FP_ADMIN.username, FP_ADMIN.password);
-        await dashboardPage.assertDashboardLoaded();
-        await use(page);
-      } finally {
-        await context.close();
+      await use(async (account) => {
+        const key = keyFor(account);
+        const existing = held.get(key);
+        if (existing) return existing.page;
+
+        // One live session per user, whichever role card was chosen: signing in
+        // as a branch admin ends the parent admin's session on the same mobile.
+        // Drop the page we hold for that user rather than hand back one the app
+        // has already signed out from under us.
+        for (const [otherKey, session] of held) {
+          if (otherKey.startsWith(`${account.username}\u0000`)) {
+            await session.context.close();
+            held.delete(otherKey);
+          }
+        }
+
+        const session = await signIn(browser, account, baseURL, viewport);
+        held.set(key, session);
+        return session.page;
+      });
+
+      for (const session of held.values()) {
+        await session.context.close();
       }
+    },
+    { scope: 'worker' },
+  ],
+
+  sessionPage: [
+    async ({ sessionFor, sessionAccount }, use) => {
+      await use(await sessionFor(sessionAccount));
     },
     { scope: 'worker' },
   ],

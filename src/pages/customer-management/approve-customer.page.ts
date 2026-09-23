@@ -158,6 +158,15 @@ export class ApproveCustomerPage extends BasePage {
   async approve(reference: string, reentry: ReentryValues): Promise<ApprovalOutcome> {
     await this.openReview(reference);
 
+    // Documents first, before the re-entry checks — the order matters and was measured.
+    //
+    // The decision control is inert until each uploaded document has been previewed,
+    // the same silent gate the reviewer screen has. Previewing *after* verifying looks
+    // equivalent and is not: done in that order, the confirmation prompt never appears
+    // at all, which surfaces as "something rejected it before that point" and says
+    // nothing about what. Done first, the same sequence approves.
+    await this.previewDocuments();
+
     await this.verifyField('PAN', this.panVerifyInput, this.panVerifyButton, reentry.pan);
     await this.verifyField(
       'bank account',
@@ -207,6 +216,52 @@ export class ApproveCustomerPage extends BasePage {
   }
 
   /**
+   * Opens each uploaded document preview, then closes it.
+   *
+   * See ReviewCustomerPage.previewDocuments() — the same rule, on the checker's screen.
+   * Every preview is optional: the page renders different ones per customer type, and a
+   * missing one must not fail an approval whose subject is something else.
+   */
+  async previewDocuments(): Promise<string[]> {
+    const opened: string[] = [];
+
+    // An explicit list, not a pattern match over the page.
+    //
+    // A union selector iterated by index was tried and is unstable here: count() is
+    // re-read each time round, and opening a preview changes the DOM, so nth(i) can
+    // resolve to a different control than it did a moment earlier — or to a button
+    // inside the modal that is now open. That silently skipped the preview the gate
+    // cares about, and Approve stayed inert with no indication why, on a fresh
+    // application as well as an already-poked one.
+    for (const id of [
+      'btnCheckerViewPanCardOd', 'btnCheckerViewMakerAddressProof', 'btnCheckerViewBankProof',
+      'btnCheckerViewPanCard', 'btnViewPanCard', 'btnViewBankProof', 'btnViewAddressProof',
+    ]) {
+      const control = this.page.locator(`#${id}`);
+      if (!(await control.isVisible().catch(() => false))) continue;
+
+      await this.page.locator('.modal.show').first()
+        .waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => undefined);
+
+      await control.click({ timeout: 10_000 }).catch(() => undefined);
+      const shown = await this.page.locator('.modal.show').first()
+        .waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+      if (shown) opened.push(id);
+
+      const close = this.page
+        .locator('.modal.show [data-bs-dismiss="modal"], .modal.show .btn-close').first();
+      if (await close.isVisible().catch(() => false)) {
+        await close.click({ timeout: 5_000 }).catch(() => undefined);
+      }
+      await this.page.locator('.modal.show').first()
+        .waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => undefined);
+    }
+
+    this.logger.info(`Previewed document(s): ${opened.join(', ') || 'none offered'}`);
+    return opened;
+  }
+
+  /**
    * Answers the "I have verified and confirmed…" prompt.
    *
    * Matched by its label rather than by position: the modal offers
@@ -214,9 +269,16 @@ export class ApproveCustomerPage extends BasePage {
    * is a coin toss that silently abandons the approval when it loses.
    */
   private async confirmDecision(): Promise<void> {
+    // Buttons and anchors, matched on text rather than by role.
+    //
+    // getByRole('button') was tried and misses it: this application renders decision
+    // controls as <a class="btn"> as often as <button>, and the reviewer screen's own
+    // "Reviewed" control is an anchor. The failure that produced was the worst kind —
+    // "the approval confirmation prompt never appeared" thrown at a prompt that was on
+    // screen, open, and waiting to be clicked.
     const confirm = this.page
-      .locator('.modal.show')
-      .getByRole('button', { name: /^yes,\s*(approve|send|reject)/i })
+      .locator('.modal.show button:visible, .modal.show a:visible, .modal.show .btn:visible')
+      .filter({ hasText: /^\s*yes[,\s]\s*(approve|send|reject)/i })
       .first();
 
     if (!(await confirm.isVisible({ timeout: 15_000 }).catch(() => false))) {

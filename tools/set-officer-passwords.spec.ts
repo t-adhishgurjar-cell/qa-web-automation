@@ -24,7 +24,7 @@ import { DbHelper } from '../src/helpers/db.helper';
 
 const TARGET_PASSWORD = process.env.OFFICER_PASSWORD ?? 'Nayara@1';
 
-const OFFICERS = [
+const DEFAULT_OFFICERS = [
   { mobile: '9072986100', label: 'Ahmedabad — Region Admin (West)' },
   { mobile: '9073068501', label: 'Ahmedabad — State Admin (GJ_I)' },
   { mobile: '9073139002', label: 'Ahmedabad I — Division Admin' },
@@ -32,6 +32,21 @@ const OFFICERS = [
   { mobile: '9073275904', label: 'Kolkata — State Admin (WB_NE)' },
   { mobile: '9073340105', label: 'Kolkata — Division Admin' },
 ];
+
+/**
+ * Any account can be put through this, not only the six officers.
+ *
+ * The forced first-login password change is not an officer thing — a customer created
+ * by approving an onboarding application arrives the same way, parked on
+ * /Home/ChangePassword with a temporary password in its activation SMS. An approved OD
+ * customer is exactly that, so rather than copy this file, the list is overridable:
+ *
+ *   OFFICER_MOBILES=9149056894 TOOLS=true ENV=qa npx playwright test \
+ *     --project=tools --grep "set officer passwords"
+ */
+const OFFICERS = process.env.OFFICER_MOBILES
+  ? process.env.OFFICER_MOBILES.split(',').map(m => ({ mobile: m.trim(), label: `account ${m.trim()}` }))
+  : DEFAULT_OFFICERS;
 
 /** The temporary password, read out of the activation SMS. */
 async function temporaryPassword(mobile: string): Promise<string | null> {

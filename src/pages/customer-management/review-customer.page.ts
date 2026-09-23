@@ -228,6 +228,9 @@ export class ReviewCustomerPage extends BasePage {
       .first();
 
     if (await finish.isVisible().catch(() => false)) {
+      // Before the remark and the click: the completing control stays inert until the
+      // documents have been opened. See previewDocuments().
+      await this.previewDocuments();
       await this.enterRemarks(remark);
 
       const label = ((await finish.textContent()) ?? '').replace(/\s+/g, ' ').trim();
@@ -264,6 +267,57 @@ export class ReviewCustomerPage extends BasePage {
         (await this.dismissDialog()) ||
         `no completing control found on the final review step; it offered: ${offered.join(' | ')}`,
     };
+  }
+
+  /**
+   * Opens each uploaded document preview, then closes it.
+   *
+   * Not cosmetic. On an OD review the "Reviewed" control is inert until the documents
+   * have been previewed: with both acknowledgements ticked and remarks filled, clicking
+   * it sent no request, opened no dialog and said nothing at all. After the previews
+   * are opened, the same click raises the YES/NO confirmation and the decision posts —
+   * SubmitReviewerDecision returns {"success":true} and the application moves 102 to 105.
+   *
+   * Which makes sense as a rule: a reviewer confirming they looked at a document should
+   * have to open it. It is the silence that is the problem, and it cost a day here —
+   * long enough to be filed as a defect before being withdrawn.
+   *
+   * Every preview is optional. The page renders different ones per customer type, and a
+   * missing one must not fail a review whose subject is something else.
+   */
+  async previewDocuments(): Promise<string[]> {
+    const opened: string[] = [];
+
+    for (const id of [
+      'btnCheckerViewPanCardOd', 'btnCheckerViewMakerAddressProof', 'btnCheckerViewBankProof',
+      'btnCheckerViewPanCard', 'btnViewPanCard', 'btnViewBankProof', 'btnViewAddressProof',
+    ]) {
+      const control = this.page.locator(`#${id}`);
+      if (!(await control.isVisible().catch(() => false))) continue;
+
+      // Wait for the previous preview to finish closing before opening the next. A
+      // sampled check reported "did not open" for a preview that opened a moment later,
+      // because the click landed while the last modal was still fading out.
+      await this.page.locator('.modal.show').first()
+        .waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => undefined);
+
+      await control.click({ timeout: 10_000 }).catch(() => undefined);
+      const shown = await this.page.locator('.modal.show').first()
+        .waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
+      if (shown) opened.push(id);
+
+      const close = this.page
+        .locator('.modal.show [data-bs-dismiss="modal"], .modal.show .btn-close')
+        .first();
+      if (await close.isVisible().catch(() => false)) {
+        await close.click({ timeout: 5_000 }).catch(() => undefined);
+      }
+      await this.page.locator('.modal.show').first()
+        .waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => undefined);
+    }
+
+    this.logger.info(`Previewed document(s): ${opened.join(', ') || 'none offered'}`);
+    return opened;
   }
 
   /**
@@ -317,7 +371,13 @@ export class ReviewCustomerPage extends BasePage {
         .map(el => {
           const e = el as HTMLElement;
           const text = (e.textContent || '').replace(/\s+/g, ' ').trim();
-          return text ? `${e.id || e.className}: ${text}` : `${e.id || e.className}: (shown, no text)`;
+          // A bare asterisk is the required-field marker this form puts beside every
+          // mandatory label, styled .text-danger. It is not a complaint, and reporting
+          // it as one turned a review that simply had not been completed into "the page
+          // refused without a dialog: text-danger: *" — a message that sent this
+          // investigation looking for a server refusal that never happened.
+          if (!text || /^[*\s]+$/.test(text)) return '';
+          return `${e.id || e.className}: ${text}`;
         })
         .filter(Boolean)
     );

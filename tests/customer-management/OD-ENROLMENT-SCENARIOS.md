@@ -215,3 +215,37 @@ admin 7 of 10 — while neither sees a single non-OD application outside scope.
 
 Five OD applications in QA, all at status 107: 1000514927, 1000514928 (drafts, 103),
 1000514929, 1000514930 (HR_HP_PB) and 1000514939 (GJ_I). Tagged `AUTO<timestamp>`.
+
+
+---
+
+## An OD login that works
+
+Created 23 September by taking a raised application through the rest of the chain:
+consent by the customer, review by a TSM, approval by a checker who is not the maker.
+
+| | |
+|---|---|
+| **Username** | `9149056894` |
+| **Password** | `Nayara@1` (set through the forced first-login change) |
+| Customer | NAYAFP3013600031 |
+| Business state | 3, WB_NE |
+| Division | **53, `OD Default - WB_NE`** — a dummy division |
+| User type | OD |
+| Reference | 1000514991 |
+
+Verified by signing in cold: it lands on `/CustomerDashboard/Index`.
+
+This is the first OD customer this suite has created that is live on a dummy division,
+and it is what the downstream checks need — vehicle approval, bulk mapping and
+de-mapping, reports and credit have never been exercised against an OD customer whose
+division is a placeholder.
+
+The chain it proves, end to end, for an OD customer with no real division:
+
+    107 Consent Pending -> 102 Pending for Review -> 105 Pending for Approval -> 101 Active
+
+Reproduce or extend with `tools/create-od-logins.spec.ts`, which skips any stage the
+application has already passed. The temporary password arrives in `dbo.UserSMSLog` and
+`tools/set-officer-passwords.spec.ts` now takes an `OFFICER_MOBILES` override, so it can
+put a customer onto a known password as well as an officer.

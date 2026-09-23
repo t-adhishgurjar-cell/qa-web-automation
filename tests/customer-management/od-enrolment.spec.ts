@@ -1,5 +1,5 @@
 import { Locator, expect } from '@playwright/test';
-import { test } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/session.fixtures';
 import { epic, feature, story, severity, description, owner } from 'allure-js-commons';
 import { DSA } from '../../src/config/accounts';
 
@@ -29,7 +29,7 @@ import { DSA } from '../../src/config/accounts';
  * the submit-and-verify cases, which create a real application.
  */
 
-test.use({ storageState: { cookies: [], origins: [] } });
+test.use({ sessionAccount: DSA });
 
 /** Pin codes chosen relative to the maker's own division, not at random. */
 const IN_DIVISION = { pin: '122001', state: 'HARYANA' };
@@ -57,14 +57,14 @@ async function displayedValue(locator: Locator): Promise<string> {
 }
 
 test.describe('OD enrolment @customer-management @regression', () => {
-  test.beforeEach(async ({ loginPage, dashboardPage, addCustomerPage }) => {
+  test.beforeEach(async ({ addCustomerPage }) => {
     await epic('Customer Management');
     await feature('OD enrolment');
     await owner('QA Team');
 
-    await loginPage.navigate();
-    await loginPage.login(DSA.username, DSA.password);
-    await dashboardPage.assertDashboardLoaded();
+    // A fresh wizard per test, on the session the worker already holds. Each
+    // test asserts against a clean form, so this reload is the isolation the
+    // shared context gives up.
     await addCustomerPage.gotoWizard();
   });
 

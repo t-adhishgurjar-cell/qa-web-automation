@@ -301,72 +301,49 @@ they have already completed correctly.
 
 ---
 
-## FP-OD-6 — P1 — An OD application cannot be reviewed: "Reviewed" is inert
+## FP-OD-6 — WITHDRAWN — "An OD application cannot be reviewed"
 
-**Type:** Bug **Priority:** P1 — blocks OD onboarding end to end
-**Component:** Customer Management / OD review
+**Status:** Withdrawn. Not a defect. My automation, and I filed it too early.
 
-### Summary
-On `/Customer/ReviewCustomerDetails` for an OD application, the "Reviewed" control does
-nothing. With both document acknowledgements ticked and remarks filled, clicking it
-sends **no request**, opens **no dialog**, shows **no validation message**, and leaves
-the application at 102. Nothing on screen indicates a precondition is unmet.
+Filed because "Reviewed" appeared inert: with both acknowledgements ticked and remarks
+filled, the click sent no request, opened no dialog and left the application at 102.
 
-Consequence: an OD application can be raised and consented, and then cannot advance.
-No OD customer can be onboarded through this path.
+It does work. The control is gated on the uploaded documents having been **previewed**
+first — open the PAN and bank previews and the same click raises the YES/NO
+confirmation, `SubmitReviewerDecision` returns `{"success":true}`, and the application
+moves 102 to 105. Proven on references 1000514991 (WB_NE) and 1000514992 (GJ_I).
 
-### Steps to reproduce
-1. Raise an OD application as a DSA and complete customer consent — it reaches 102,
-   Pending for Review.
-2. Sign in as TSM / Territory Admin `9612200200` and open
-   **Customer Management → Review Onboarding**. The application is listed.
-3. Open it. Tick `#reviewerPanDocAck` and `#reviewerBankDocAck`; both accept the tick.
-4. Fill `#Remarks`.
-5. Click **Reviewed** (`#btnApprove`).
+Two smaller mistakes of mine were folded into that conclusion, both now fixed in
+`ReviewCustomerPage`:
 
-### Expected
-The application advances to 105, Pending for Approval.
+- `inlineErrors()` reported the form's required-field asterisks as complaints, so the
+  outcome read "the page refused without a dialog: text-danger: *" — a message about a
+  refusal that never happened. Bare asterisks are now filtered.
+- The confirmation is answered by a control whose text is "YES" with surrounding
+  whitespace, and on the checker screen "Yes, approve". Matchers anchored as `/^yes$/`
+  miss both. `previewDocuments()` was added and the matching made whitespace-tolerant.
 
-### Actual
-Nothing happens. Status stays 102. Measured on references 1000514990 (GJ_I) and
-1000514991 (WB_NE): both consented successfully (107 → 102) and both then stalled.
+**What is a fair criticism of the application**, and is why this took a day: the gate is
+completely silent. No disabled control, no tooltip, no validation message, nothing in
+the DOM to distinguish "you have not opened the documents yet" from "this button is
+broken". The checker screen has the same pattern with its two Verify buttons, which is
+already documented in `ApproveCustomerPage`. Worth raising as a usability point rather
+than a defect: a reviewer who has not opened the documents should be told so.
 
-The control is an anchor driven by a delegated handler:
+### Still unstable, and not yet a finding
+The review and approval stages do not pass reliably through these page objects. Measured
+today: 1000514991 (WB_NE) completed to 101; 1000514992 and 1000514990 (both GJ_I) reach
+105 and then accept the approval confirmation without submitting anything; 1000514979
+(HR_HP_PB) would not advance past 102 on an attempt that had worked minutes earlier for
+another reference.
 
-```html
-<a id="btnApprove" class="btn btn_primary w-auto" data-action="ApproveCustomer"
-   data-args="[105]" href="#"><i class="fa fa-check">&nbsp;</i> Reviewed</a>
-```
+Two of two GJ_I applications failing to approve looked state-specific and was nearly
+written up as such. It is not being filed, because a third case then failed at a
+different stage in a different state — which points at my own automation being flaky
+rather than at the product, and a defect report built on that would send someone
+chasing the wrong thing. Isolating it needs the approval decision watched at the
+network level across several states, which is a piece of work in its own right.
 
-It is not disabled and carries no `disabled` class, so a client-side precondition is
-failing silently rather than the control being switched off.
-
-### It is not a scope problem
-Worth stating because it was the first suspicion. These applications carry the dummy
-divisions 61 (GJ_I) and 53 (WB_NE), which no TSM is mapped to — yet the Gurgaon TSM
-(region 2, state 4, division 17) finds **both** in its reviewer queue and opens both
-detail pages without refusal. That is FP-OD-1 showing up on a second screen, and it
-means review is reachable; the button itself is the blocker.
-
-### Not only our applications
-Reference **1000514973**, raised at 11:08 today by DSA `8527769693` — not by this suite
-— is also sitting at 102. The only OD application to get past review recently is
-1000514956, which advanced at 18:36 on 22 September. So this looks like a regression
-introduced between yesterday evening and this morning, in the same window as the dummy
-division assignment going live (09:53–11:08 on 23 September).
-
-### Not yet checked
-Whether the gate is "the reviewer must open each uploaded document first". The OD review
-page offers three preview controls — `#btnCheckerViewPanCardOd`,
-`#btnCheckerViewMakerAddressProof`, `#btnCheckerViewBankProof` — and a precondition of
-that shape would explain a silent refusal. The experiment was written and not run: the
-database connection dropped (`ECONNRESET`) before it could be measured.
-
-### Evidence
-`tools/create-od-logins.spec.ts` — drives consent, review and approval; stops here.
-`tools/probe-od-review-drive.spec.ts` — performs each review step explicitly and reports
-after each one. `tools/probe-od-review-gate.spec.ts` — dumps the control and the page's
-scripts.
 
 ---
 

@@ -42,13 +42,15 @@ const APPLICATIONS = [
   {
     place: 'Ahmedabad', reference: process.env.OD_AHMEDABAD_REF ?? '1000514990',
     mobile: process.env.OD_AHMEDABAD_MOBILE ?? '9149024359',
-    pan: 'HSBPP4359Q', bankAccountNumber: '1234567890',
+    pan: process.env.OD_AHMEDABAD_PAN ?? 'HSBPP4359Q',
+    bankAccountNumber: process.env.OD_AHMEDABAD_BANK ?? '1234567890',
     state: 'GJ_I', dummyDivision: 61,
   },
   {
     place: 'Kolkata', reference: process.env.OD_KOLKATA_REF ?? '1000514991',
     mobile: process.env.OD_KOLKATA_MOBILE ?? '9149056894',
-    pan: 'HTMPH6894D', bankAccountNumber: '1234567890',
+    pan: process.env.OD_KOLKATA_PAN ?? 'HTMPH6894D',
+    bankAccountNumber: process.env.OD_KOLKATA_BANK ?? '1234567890',
     state: 'WB_NE', dummyDivision: 53,
   },
 ] as const;
@@ -70,11 +72,19 @@ test.describe('Tools — create OD logins @tools', () => {
       console.log(`\n=== ${application.place} ${application.reference} (${application.mobile}) ===`);
       console.log(`  starting status: ${await statusOf()}`);
 
+      // Each stage is skipped if the application is already past it, so this can be
+      // re-run against a chain that stopped halfway — which is how it was built.
+      const start = await statusOf();
+
       // ── Consent. Belongs to the customer: the link arrives by SMS and no amount of
       // clicking in the back office advances it. The token comes from dbo.UserSMSLog
       // and the URL is rebuilt against the environment under test.
-      await ConsentPage.completeFor(page, application.mobile, TEST_OTP);
-      console.log(`  after consent: ${await statusOf()}`);
+      if (start === 107) {
+        await ConsentPage.completeFor(page, application.mobile, TEST_OTP);
+        console.log(`  after consent: ${await statusOf()}`);
+      } else {
+        console.log(`  consent already given (status ${start})`);
+      }
 
       // ── Review, by a TSM in a different state entirely. See the note above.
       await page.context().clearCookies();
@@ -82,24 +92,44 @@ test.describe('Tools — create OD logins @tools', () => {
       await loginPage.login(TSM.username, TSM.password);
       await dashboardPage.assertDashboardLoaded();
 
-      const reviewer = new ReviewCustomerPage(page);
-      const review = await reviewer.review(application.reference);
-      console.log(`  review (${TSM.username}): ${JSON.stringify(review)}`);
-      console.log(`  after review: ${await statusOf()}`);
+      if ((await statusOf()) === 102) {
+        const reviewer = new ReviewCustomerPage(page);
+        const review = await reviewer.review(application.reference);
+        console.log(`  review (${TSM.username}): ${JSON.stringify(review)}`);
+
+        // The decision posts asynchronously. Read immediately and the status is still
+        // 102, which reads as a review that did not take — and then the approval stage
+        // reports the application missing from its queue, blaming the wrong thing.
+        await expect
+          .poll(statusOf, { timeout: 30_000, message: 'the review never moved the status past 102' })
+          .not.toBe(102);
+        console.log(`  after review: ${await statusOf()}`);
+      } else {
+        console.log(`  review already done (status ${await statusOf()})`);
+      }
 
       // ── Approval, by a checker who is not the maker.
-      await page.context().clearCookies();
-      await loginPage.navigate();
-      await loginPage.login(FP_ADMIN.username, FP_ADMIN.password);
-      await dashboardPage.assertDashboardLoaded();
+      if ((await statusOf()) === 105) {
+        await page.context().clearCookies();
+        await loginPage.navigate();
+        await loginPage.login(FP_ADMIN.username, FP_ADMIN.password);
+        await dashboardPage.assertDashboardLoaded();
 
-      const approver = new ApproveCustomerPage(page);
-      const outcome = await approver.approve(application.reference, {
-        pan: application.pan,
-        bankAccountNumber: application.bankAccountNumber,
-      });
-      console.log(`  approval: ${JSON.stringify(outcome)}`);
-      console.log(`  after approval: ${await statusOf()}`);
+        const approver = new ApproveCustomerPage(page);
+        const outcome = await approver.approve(application.reference, {
+          pan: application.pan,
+          bankAccountNumber: application.bankAccountNumber,
+        });
+        console.log(`  approval: ${JSON.stringify(outcome)}`);
+
+        // Like the review decision, the approval posts asynchronously.
+        await expect
+          .poll(statusOf, { timeout: 30_000, message: 'the approval never moved the status past 105' })
+          .not.toBe(105);
+        console.log(`  after approval: ${await statusOf()}`);
+      } else {
+        console.log(`  approval already done (status ${await statusOf()})`);
+      }
 
       // ── What exists now: the customer, its division, and the user that can sign in.
       const customer = await db.query(`

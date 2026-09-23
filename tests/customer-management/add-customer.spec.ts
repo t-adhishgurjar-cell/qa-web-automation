@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import { test } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/session.fixtures';
 import { FleetPlusTestData } from '../../src/helpers/fleetplus-test-data.helper';
 import { epic, feature, story, severity, description, owner, tms } from 'allure-js-commons';
 
@@ -13,33 +13,33 @@ import { epic, feature, story, severity, description, owner, tms } from 'allure-
  * assert the form's contract: what the app generates, what it locks, and what it
  * reveals conditionally.
  *
- * Authenticates per test rather than reusing auth.setup's storageState. FleetPlus
- * ties a session to the browser context that created it: replaying the saved
- * cookies (.AspNetCore.Session and friends — there is no separate auth cookie)
- * into a fresh context returns "Session Expired, Please login again!". The usual
- * log-in-once optimisation is therefore unavailable for this app.
+ * Auth comes from the worker's shared session rather than auth.setup's
+ * storageState. FleetPlus ties a session to the browser context that created
+ * it: replaying the saved cookies (.AspNetCore.Session and friends — there is
+ * no separate auth cookie) into a fresh context returns "Session Expired,
+ * Please login again!". Holding one context open for the worker is the form of
+ * log-in-once that does work here.
  */
 
-// A stored session is not reusable here, so start from a clean context and log in.
-test.use({ storageState: { cookies: [], origins: [] } });
+const PRIMARY = FleetPlusTestData.getPrimaryCredential();
+
+test.use({
+  sessionAccount: {
+    username: PRIMARY.mobile,
+    password: PRIMARY.password,
+    role: 'primary credential',
+  },
+});
 
 // FleetPlus permits one session per user; parallel logins as the same account
 // trigger its "already signed in" prompt.
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Add Customer @customer-management @smoke', () => {
-  test.beforeEach(async ({ loginPage, dashboardPage, addCustomerPage }) => {
+  test.beforeEach(async ({ addCustomerPage }) => {
     await epic('Customer Management');
     await feature('Add Customer');
     await owner('QA Team');
-
-    const { mobile, password } = FleetPlusTestData.getPrimaryCredential();
-    await loginPage.navigate();
-    await loginPage.login(mobile, password);
-
-    // Let the post-OTP redirect finish. Navigating while it is still in flight
-    // aborts the new request (net::ERR_ABORTED) rather than queueing behind it.
-    await dashboardPage.assertDashboardLoaded();
 
     await addCustomerPage.gotoWizard();
   });

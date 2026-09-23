@@ -54,9 +54,14 @@ test.describe('Tools — probes @tools', () => {
         console.log(`  ${id}: not on this page`);
         continue;
       }
+      // Waited for, not sampled: the previous preview's modal is still fading out when
+      // the next click lands, and a sampled check reported "did not open" for a preview
+      // that opened a moment later.
+      await page.locator('.modal.show').first()
+        .waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => undefined);
       await view.click().catch(() => undefined);
-      await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => undefined);
-      const opened = await page.locator('.modal.show').first().isVisible().catch(() => false);
+      const opened = await page.locator('.modal.show').first()
+        .waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
       // Close it again by its own control, so the next click is not swallowed.
       const close = page.locator('.modal.show [data-bs-dismiss="modal"], .modal.show .btn-close').first();
       if (await close.isVisible().catch(() => false)) await close.click().catch(() => undefined);
@@ -80,8 +85,18 @@ test.describe('Tools — probes @tools', () => {
 
     const approve = page.locator('#btnApprove');
     console.log(`  #btnApprove visible=${await approve.isVisible()} text="${(await approve.textContent())?.trim()}"`);
+
+    // Watch for the request the decision should make, so "the button did nothing" can be
+    // told apart from "it posted and the server refused".
+    const posted = page
+      .waitForResponse(r => r.request().method() === 'POST' && /Customer\//i.test(r.url()),
+        { timeout: 20_000 })
+      .then(async r => `${r.status()} ${r.url().split('/').pop()}: ${(await r.text().catch(() => '')).slice(0, 200)}`)
+      .catch(() => null);
+
     await approve.click();
-    await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
+    await page.locator('.modal.show').first()
+      .waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined);
 
     // Anything the page says, dialog or inline, with the asterisks filtered out —
     // a bare "*" is a required-field marker, not a complaint, and reporting it as one
@@ -101,11 +116,14 @@ test.describe('Tools — probes @tools', () => {
     if (await confirm.first().isVisible().catch(() => false)) {
       const labels = await confirm.allTextContents();
       console.log(`  dialog buttons: ${labels.map(l => l.trim()).join(' | ')}`);
-      const ok = confirm.filter({ hasText: /^(ok|yes|confirm|proceed)$/i }).first();
+      // YES explicitly, by its own text — not the first button in the dialog, which is
+      // the close cross, and not NO, which is what DOM order would pick.
+      const ok = confirm.filter({ hasText: /^\s*(yes|ok|confirm|proceed)\s*$/i }).first();
       if (await ok.isVisible().catch(() => false)) {
+        console.log(`  clicking "${(await ok.textContent())?.trim()}"`);
         await ok.click();
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
-        console.log(`  clicked OK`);
+        console.log(`  request made: ${(await posted) ?? 'none — the decision sent nothing'}`);
         const after = await page.evaluate(() =>
           Array.from(document.querySelectorAll('.modal.show'))
             .map(e => (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200)));

@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import * as path from 'path';
-import { test } from '../../src/fixtures/page.fixtures';
+import { test } from '../../src/fixtures/session.fixtures';
 import { epic, feature, story, severity, description, owner } from 'allure-js-commons';
 import { AddCustomerPage } from '../../src/pages/customer-management/add-customer.page';
 import { DSA, TEST_OTP } from '../../src/config/accounts';
@@ -30,7 +30,7 @@ import { runTag } from '../../src/helpers/test-identity';
  * This creates real applications in QA — one per test, tagged AUTO<timestamp>.
  */
 
-test.use({ storageState: { cookies: [], origins: [] } });
+test.use({ sessionAccount: DSA });
 // Not serial: each test raises its own application and shares no state, and under
 // serial the first failure — which is the finding, not an accident — would stop the
 // second from ever running.
@@ -92,14 +92,11 @@ interface StoredDivision {
 }
 
 test.describe('OD enrolment — submitted @customer-management @regression', () => {
-  test.beforeEach(async ({ loginPage, dashboardPage, addCustomerPage }) => {
+  test.beforeEach(async ({ addCustomerPage }) => {
     await epic('Customer Management');
     await feature('OD enrolment');
     await owner('QA Team');
 
-    await loginPage.navigate();
-    await loginPage.login(DSA.username, DSA.password);
-    await dashboardPage.assertDashboardLoaded();
     await addCustomerPage.gotoWizard();
   });
 
