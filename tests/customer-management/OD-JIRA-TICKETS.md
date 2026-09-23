@@ -4,24 +4,40 @@ Measured 22 September 2026 against `webqa.fleetforc.com`, FLEETPLUS Web Release 
 Every ticket below is reproduced by a named test in this repo.
 
 Change request under test: *"During enrolment of OD user type, Division along with
-Pin code restriction basis division to be removed."*
+Pin code restriction basis division to be removed."* — the client's intent being to
+remove the **division** level of the hierarchy from OD, leaving other customer types
+untouched.
 
-**The change itself works.** Division is not offered for OD, other customer types keep
-it, and no pin code is judged against a division any more (10 of 17 tests pass on
-that). What follows is what testing around it turned up.
+So there are two questions, and they are answered separately below.
+
+**1. Does the fix work?** Largely yes. Division is not offered for an OD enrolment,
+no pin code is judged against a division, an OD application is stored with no
+division (`CustomerDivisionId = 0`) by design, and review routing does not need one —
+reference 1000514956 carries division 0 and has reached status 105, Pending for
+Approval. One thing went further than the request: see FP-OD-1.
+
+**2. Are other customer types hampered?** Fleet, Non Fleet and Corporate all still
+show the division as visible, enabled and required; it returns correctly when the
+type is switched back from OD; non-OD applications are still scoped by all three
+hierarchy levels; and all 104,740 Fleet customers still carry a division. The
+exception is FP-OD-3, which does reach the Fleet path.
 
 ---
 
-## FP-OD-1 — P0 — An OD application is visible to every officer in the country
+## FP-OD-1 — P1 — The division level was removed from OD, and region and state went with it
 
-**Type:** Bug **Priority:** P0 — Blocker **Component:** Customer Management / OD
+**Type:** Bug **Priority:** P1 — needs a ruling, see Notes **Component:** Customer Management / OD
 
 ### Summary
-OD applications ignore officer hierarchy scoping. Every region admin, state admin,
-division admin and territory admin sees every OD application on View Onboarding,
-regardless of the region, state or division it was raised in. Non-OD applications on
-the same screen, for the same officers, are correctly scoped — which is what makes
-this specific to OD rather than a screen with no scoping at all.
+The change asked for the **division** level of the hierarchy to stop applying to OD.
+It no longer does, correctly. But region and state have stopped applying as well, and
+they were not part of the request — so an OD application is now visible to officers
+who have no claim to the region or the state it was raised in.
+
+This is measured with the division deliberately ignored for OD. The rows below are
+outside the officer's **region or state**, not merely outside their division. Non-OD
+applications on the same screen, for the same officers, still respect all three
+levels, which is what rules out "the screen is simply unscoped".
 
 ### Steps to reproduce
 1. Sign in as territory admin `9612200200` — mapped to region 2, business state 4
@@ -31,80 +47,97 @@ this specific to OD rather than a screen with no scoping at all.
    `dbo.RawCustomerMaster` joined to `dbo.BusinessStateMaster`.
 
 ### Expected
-Only applications in region 2 / state 4 / division 17.
+OD applications in region 2, state 4 — any division, including none. That is the
+change as requested: the division stops mattering, the region and state do not.
 
 ### Actual
-Both officers tested see OD applications from across the country, while every
-non-OD application they see is inside their own scope.
+Territory admin `9612200200`, scoped to region 2 / state 4 / division 17, sees 8 OD
+applications of which **5 are outside its region or state**:
 
-Territory admin `9612200200` (region 2, state 4, division 17):
-
-| Reference | Type | Region | State | Division | In scope? |
+| Reference | Type | Region | State | Division | Verdict |
 |---|---|---|---|---|---|
-| 1000514867 | Fleet | 2 | 4 | 17 | yes — control |
-| 1000514858 | Fleet | 2 | 4 | 17 | yes — control |
-| 1000514939 | OD | 4 | 11 | 0 | **no** |
-| 1000514873 | OD | 2 | 7 | 15 | **no** |
-| 1000514846 | OD | 1 | 3 | 26 | **no** |
-| 1000514849 | OD | 2 | 7 | 34 | **no** |
+| 1000514867 | Fleet | 2 | 4 | 17 | in scope — control |
+| 1000514858 | Fleet | 2 | 4 | 17 | in scope — control |
+| 1000514849 | OD | 2 | **7** | 34 | wrong state |
+| 1000514873 | OD | 2 | **7** | 15 | wrong state |
+| 1000514956 | OD | 2 | **7** | 0 | wrong state |
+| 1000514871 | OD | **4** | **11** | 1 | wrong region and state |
+| 1000514939 | OD | **4** | **11** | 0 | wrong region and state |
 
-Division admin `9073139002` (region 4, state 11, division 1) sees the same OD rows
-plus `1000514845` (region 4, state 12, division 5) and `1000514848` (division 2),
-while the only non-OD row it sees, `1000514729`, is its own division 1.
+Division admin `9073139002`, scoped to region 4 / state 11 / division 1, sees 10 OD
+applications of which **7 are outside its region or state** — including references in
+regions 1 and 2 and states 3, 4 and 7. Its only non-OD row, 1000514729, is its own
+division 1.
+
+In both cases the count of non-OD applications outside scope is **zero**.
 
 ### Evidence
-`tests/customer-management/od-hierarchy-visibility.spec.ts` — both cases fail on the
-OD assertion and pass the non-OD control assertion that precedes it.
+`tests/customer-management/od-hierarchy-visibility.spec.ts`. Its scope predicate
+ignores the division for OD and applies all three levels to everything else, so the
+failure is specifically about region and state. The non-OD control is asserted first,
+before any claim about OD.
 
 ### Notes
-Not introduced by this change request. The leaked OD applications include ones raised
-on 16 and 21 September with real divisions, so the leak is keyed on customer type,
-not on the `CustomerDivisionId = 0` that this change produces (FP-OD-2). It is raised
-at P0 because the OD module is what is under test and this is a cross-region data
-exposure that the equivalent Fleet path does not have.
+Two things to weigh before fixing:
+
+- **It predates the change.** The leaked set includes OD applications raised on 16 and
+  21 September carrying real divisions, so the behaviour keys on customer type rather
+  than on the `CustomerDivisionId = 0` this change produces. It was not introduced
+  here; it was uncovered by testing here.
+- **It may be intended.** If "no mapping restrictions for OD" was meant to mean the
+  whole location hierarchy and not just the division level, this is correct behaviour
+  and the ticket should be closed as such. That is a question for the BA, not for QA
+  to decide — which is why this is filed at P1 with the evidence rather than as a
+  blocker. What it is *not* is a match for the change request as written.
 
 ---
 
-## FP-OD-2 — P1 — A submitted OD application is stored with no division at all
+## FP-OD-2 — WITHDRAWN — "A submitted OD application is stored with no division"
 
-**Type:** Bug **Priority:** P1 **Component:** Customer Management / OD
+**Status:** Withdrawn. Not a defect.
 
-### Summary
-`dbo.DivisionMaster` gained fifteen rows named `OD Default - <business state>`
-(`DivisionId` 51–65, `DMId` `ODDEF-1`…`ODDEF-15`, `IsPlaceholder = 1`), created
-2026-09-22 16:11:52 — evidently so that an OD enrolment has a division to carry now
-that the maker is not asked for one. Nothing uses them. OD applications are stored
-with `CustomerDivisionId = 0`, which matches no row in `DivisionMaster`.
+This was filed on a misreading of the change request. A submitted OD application is
+stored with `CustomerDivisionId = 0`, and with the client's intent being to remove
+the division level from OD, that is the fix working rather than failing.
 
-### Steps to reproduce
-1. Sign in as DSA `9611200199` (Gurgaon, HR_HP_PB).
-2. Customer Management → Add Customer → Add Customer.
-3. Customer type **OD**, sub-type `OD (Owner Driver)`, business state `HR_HP_PB`.
-4. Fill the address, customer, PAN and mobile-OTP fields; Save As Draft; Submit.
-5. `SELECT CustomerDivisionId FROM dbo.RawCustomerMaster WHERE ReferenceNo = <ref>`.
+Two checks that would have caught the misreading, both now done and both reassuring:
 
-### Expected
-`DivisionId 54`, `OD Default - HR_HP_PB` — the placeholder for that business state.
+- **Review routing does not need a division.** Reference 1000514956 carries
+  `CustomerDivisionId = 0` and has reached status 105, Pending for Approval. The
+  concern that a division-less application would sit unreviewable is answered by the
+  product itself.
+- **Other customer types still carry divisions.** All 104,740 Fleet customers and all
+  135 existing OD customers in `dbo.CustomerMaster` have one; the OD figures are all
+  pre-fix, the latest created 21 September.
 
-### Actual
-`CustomerDivisionId = 0`. Reproduced on references 1000514927, 1000514928,
-1000514929, 1000514930 and 1000514939. The region and state are stored correctly.
+`tests/customer-management/od-enrolment-submit.spec.ts` OD-20 still asserts the old
+expectation and therefore still fails. **It needs rewriting to assert division 0 is
+stored**, which is the real acceptance criterion — tracked below under "Still to do".
 
-### Why it matters
-No TSM is mapped to any placeholder division (`dbo.TSMDivisionMapping` has no row
-for one) and no officer's `UserLocationMapping` points at one — so even if the
-placeholder were written, review routing would need attention. With division 0 there
-is nothing to route on at all. Division has always decided which TSM reviews an
-application.
+### Two things left over from it, neither a defect
 
-### Evidence
-`tests/customer-management/od-enrolment-submit.spec.ts` — OD-20.
-
----
+- **Fifteen unused placeholder divisions.** `dbo.DivisionMaster` gained rows
+  `OD Default - <business state>` (`DivisionId` 51–65, `IsPlaceholder = 1`) at
+  2026-09-22 16:11:52, one per business state. Nothing writes or reads them: no
+  application, no customer, no `TSMDivisionMapping` row, no `UserLocationMapping`
+  row. If the implementation settled on storing 0 instead, these are dead rows and
+  worth removing before they confuse someone; if they are meant to be used, the code
+  does not use them. A question for dev either way.
+- **No post-fix OD customer has been approved yet.** Every one of the 135 approved OD
+  customers carries a real division, all created on or before 21 September. So no
+  downstream screen has yet been shown an OD customer with no division, and anything
+  that filters customers by division — vehicle approval, bulk mapping, reports,
+  credit — has not been exercised against one. That is the untested risk this change
+  actually carries, and it is the next thing to test.
 
 ## FP-OD-3 — P1 — Changing the customer type does not reload its dependent dropdowns
 
 **Type:** Bug **Priority:** P1 **Component:** Customer Management / Add Customer
+
+**This is the one finding that reaches other customer types**, and so belongs to the
+second half of the brief rather than the first. Whether it predates the change is not
+established — the cascade is not OD-specific and there is no earlier build to compare
+against.
 
 ### Summary
 Customer sub-type and division are children of the customer type and the business
@@ -147,9 +180,10 @@ application whose division belongs to a different state than the one on the form
 
 ---
 
-## FP-OD-4 — P2 — The hidden division keeps its value under OD
+## FP-OD-4 — P3 — The hidden division keeps its value under OD
 
-**Type:** Bug **Priority:** P2 **Component:** Customer Management / OD
+**Type:** Bug **Priority:** P3 — cosmetic, given the division is now ignored for OD
+**Component:** Customer Management / OD
 
 ### Summary
 `#CustDivisionID` is hidden for OD rather than cleared. Choose Fleet, pick a
@@ -159,10 +193,11 @@ division (`value="17"`, Gurgaon).
 ### Steps, expected, actual
 As FP-OD-3 steps 1–3, then read `#CustDivisionID`. Expected `0`; actual `17`.
 
-The value does not reach the database — the application is stored with division 0
-(FP-OD-2) — so this is untidiness rather than data corruption today. It is worth
-fixing because it is one serialisation change away from silently enrolling an OD
-customer into a division nobody on the form could see.
+The value does not reach the database: the application is stored with division 0,
+which is the intended outcome. So this is untidiness rather than data corruption, and
+it drops to P3 under the corrected reading of the change. Still worth clearing — a
+hidden control holding a live value is one serialisation change away from putting a
+division back on an OD customer that nobody on the form chose.
 
 ### Evidence
 `tests/customer-management/od-enrolment.spec.ts` — OD-03.
@@ -213,3 +248,21 @@ they have already completed correctly.
   admins see zero rows on `/Customer/ManageCustomerOnboarding`; View Onboarding is
   their screen. Review Onboarding is refused to all three (correctly — they are not
   reviewers).
+
+
+---
+
+## Still to do
+
+- **Rewrite OD-20** to assert `CustomerDivisionId = 0` — the real acceptance criterion
+  for this change. It currently asserts the placeholder division and fails for that
+  reason, not because the application is wrong.
+- **Approve a post-fix OD customer** and check the screens that read
+  `CustomerDivisionId`: Approved Customers, vehicle approval, bulk mapping and
+  de-mapping, reports. Nothing downstream has yet seen an OD customer without a
+  division.
+- **The Leads path.** `/Lead/LeadList` → Add Leads carries `#llAddPinCode` and no
+  division field, and `LeadMaster.DivisionId` is still derived from the pin code —
+  lead 47 has pin code 160019, Chandigarh, and DivisionId 17, Gurgaon. If the division
+  is to stop applying to OD, that derivation is a second place it still happens, and
+  it is untested.

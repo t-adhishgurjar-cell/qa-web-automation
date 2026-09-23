@@ -39,9 +39,19 @@ test.describe.configure({ mode: 'default' });
 const OTP = TEST_OTP;
 const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
 
-/** The maker's own division, and the placeholder that should replace it for OD. */
+/** The maker's own division — what an OD application must NOT be stored against. */
 const MAKER_DIVISION_NAME = 'Gurgaon';
 const MAKER_STATE = 'HR_HP_PB';
+/**
+ * Present but deliberately unused.
+ *
+ * dbo.DivisionMaster carries fifteen "OD Default - <state>" rows with
+ * IsPlaceholder = 1, created 2026-09-22 16:11. A first version of this test asserted
+ * an OD application would be stored against the one for its state, which was a guess
+ * at the implementation rather than a reading of the requirement — and it failed for
+ * that reason while the application was in fact correct. Kept only so the assertion
+ * below can say what was NOT stored.
+ */
 const PLACEHOLDER_FOR_MAKER_STATE = 'OD Default - HR_HP_PB';
 
 /** Deliberately in another state — the pin code must no longer be judged by division. */
@@ -140,17 +150,18 @@ test.describe('OD enrolment — submitted @customer-management @regression', () 
     return rows[0];
   };
 
-  test('OD-20 a clean OD application is stored against the placeholder division', async ({
+  test('OD-20 a clean OD application is stored with no division at all', async ({
     addCustomerPage, db,
   }) => {
     test.setTimeout(420_000);
     await story('What the server stores for OD');
     await severity('critical');
     await description(
-      'The baseline. OD chosen as the first action, so no division was ever picked, ' +
-        'and an address pin code in another state. Checks the application was ' +
-        'accepted and that it carries the OD Default placeholder for its business ' +
-        'state rather than the maker\'s own division or nothing at all.'
+      'The acceptance criterion for the change. The client asked for the division ' +
+        'level of the hierarchy to be removed from OD, so an OD application must be ' +
+        'stored with NO division — not the maker\'s own, and not a substitute. ' +
+        'Raised with OD chosen as the first action, so no division was ever picked, ' +
+        'and with an address pin code in another state.'
     );
 
     const tag = runTag();
@@ -180,14 +191,29 @@ test.describe('OD enrolment — submitted @customer-management @regression', () 
     const stored = await storedDivision(db, reference);
     console.log(`OD-20 stored: ${JSON.stringify(stored)}`);
 
+    // No division, expressed as the application stores it: CustomerDivisionId 0,
+    // which resolves to no DivisionMaster row at all.
+    expect(
+      stored.CustomerDivisionId,
+      `The OD application was stored against division ${stored.CustomerDivisionId} ` +
+        `("${stored.DivisionName}"). The change removes the division level from OD, so ` +
+        `an OD application should carry no division — any division here means the ` +
+        `hierarchy is still being applied to OD somewhere.`
+    ).toBe(0);
+
     expect(
       stored.DivisionName,
-      `The OD application was stored against "${stored.DivisionName}" ` +
-        `(DivisionId ${stored.CustomerDivisionId}). An OD enrolment is meant to carry ` +
-        `the placeholder division for its business state, since the maker is no ` +
-        `longer offered a division at all.`
-    ).toBe(PLACEHOLDER_FOR_MAKER_STATE);
-    expect(stored.IsPlaceholder, 'the stored division is not a placeholder').toBeTruthy();
+      `Division ${stored.CustomerDivisionId} resolves to "${stored.DivisionName}". ` +
+        `A stored division of 0 should match no row in DivisionMaster.`
+    ).toBeNull();
+
+    // Two specific wrong answers worth naming, because each would look plausible:
+    // the maker's own division, which is what the form used to impose, and the
+    // OD Default placeholder, which exists in the data but is not used.
+    expect(
+      [MAKER_DIVISION_NAME, PLACEHOLDER_FOR_MAKER_STATE],
+      `The application carries "${stored.DivisionName}".`
+    ).not.toContain(stored.DivisionName);
   });
 
   test('OD-21 a division chosen under Fleet does not follow the form into OD', async ({

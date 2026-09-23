@@ -17,13 +17,18 @@ import { epic, feature, story, severity, description, owner } from 'allure-js-co
  * menu tables map to these roles — not the Add Customer list, which is the maker's
  * own and shows an admin nothing at all.
  *
- * The test is built around a control rather than an expectation. Each officer's
- * list is resolved against the database and split in two: the Fleet applications
- * they can see, and the OD applications they can see. If both are inside their
- * scope, the screen is scoped and there is nothing to report. If the Fleet rows
- * are inside it and the OD rows are not, then scoping works and OD is escaping it
- * — which no assertion about OD alone could establish, because a screen that
- * scopes nothing at all would look identical from the OD side.
+ * The change request removes the DIVISION level for OD, and only that level. So an
+ * OD customer carries no division — CustomerDivisionId is 0 by design — and a
+ * division admin should still see the OD customers in their own state. Region and
+ * state were never part of the ask.
+ *
+ * That makes this a test of how far the removal went. Each officer's list is
+ * resolved against the database and split in two: the OD applications they can see,
+ * judged by region and state only, and the non-OD applications they can see, judged
+ * by all three levels. The second group is the control — it establishes that the
+ * screen is scoped at all, so an OD result means something. If OD rows appear from
+ * other regions and states, the removal took the whole hierarchy rather than the
+ * division level the client asked for.
  *
  * Read-only: signs in, reads a list, and queries the database.
  */
@@ -51,11 +56,27 @@ interface Application {
   CustomerDivisionId: number; RegionId: number | null; CustomerTypeName: string;
 }
 
-/** Within an officer's reach: every level they are mapped to must agree. */
+/**
+ * Within an officer's reach.
+ *
+ * Two rules, because the change request removes one level of the hierarchy and not
+ * the others. "No mapping restrictions ... remove division hierarchy from OD" means
+ * an OD customer has no division — it is stored as 0 deliberately — so a division
+ * admin must NOT be excluded from an OD customer in their own state merely because
+ * they hold a division and the customer holds none. Region and state were not part
+ * of the ask and still apply.
+ *
+ * For every other customer type all three levels apply, unchanged. That pair is
+ * what the tests below compare: OD judged by region and state, other types judged by
+ * region, state and division.
+ */
 function inScope(application: Application, scope: Scope): boolean {
   if (scope.RegionId && application.RegionId !== scope.RegionId) return false;
   if (scope.BusinessStateId && application.CustomerStateId !== scope.BusinessStateId) return false;
-  if (scope.DivisionId && application.CustomerDivisionId !== scope.DivisionId) return false;
+  const divisionApplies = application.CustomerTypeName !== 'OD';
+  if (divisionApplies && scope.DivisionId && application.CustomerDivisionId !== scope.DivisionId) {
+    return false;
+  }
   return true;
 }
 
@@ -71,10 +92,11 @@ test.describe('OD hierarchy visibility @customer-management @regression', () => 
       await story('Officer hierarchy');
       await severity('blocker');
       await description(
-        'Reads View Onboarding as this officer, resolves every row against the ' +
-          'database, and checks the OD rows against the officer\'s own region, state ' +
-          'and division. The Fleet rows on the same screen are the control: they ' +
-          'establish that the screen is scoped at all.'
+        'Reads View Onboarding as this officer and resolves every row against the ' +
+          'database. OD rows are checked against region and state only, since the ' +
+          'change request removes the division level for OD deliberately. Non-OD rows ' +
+          'are checked against all three levels and are the control: they establish ' +
+          'that the screen is scoped at all.'
       );
 
       const scopes = await db.query<Scope>(`
@@ -143,10 +165,14 @@ test.describe('OD hierarchy visibility @customer-management @regression', () => 
         odOutside.map(a =>
           `${a.ReferenceNo} (region ${a.RegionId}, state ${a.CustomerStateId}, ` +
           `division ${a.CustomerDivisionId})`),
-        `${officer.level} is scoped to ${JSON.stringify(scope)} and every non-OD ` +
-          `application on this screen respects that. These OD applications do not — ` +
-          `they belong to other regions, states and divisions, and this officer can ` +
-          `see them all. The scoping is applied to other customer types and not to OD.`
+        `${officer.level} is scoped to ${JSON.stringify(scope)}. These OD ` +
+          `applications are outside that officer's REGION or STATE — the division is ` +
+          `not being counted against them, which is correct and is what the change ` +
+          `asked for. The change asked to remove the division level from OD, not the ` +
+          `region and state above it, and every non-OD application on this same ` +
+          `screen still respects all three. So the removal went further than the ` +
+          `request: an OD customer is now visible to officers with no claim to its ` +
+          `region or state at all.`
       ).toEqual([]);
     });
   }

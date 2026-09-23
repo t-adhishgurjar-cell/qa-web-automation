@@ -65,34 +65,34 @@ change request asked for; the tests below pin that down so a regression is visib
 
 | # | Scenario | Expected | Result |
 |---|---|---|---|
-| OD-20 | Submit a complete OD application with a cross-state pin code | accepted; confirmation names the reference | submit **passes**; stored division **FAILS** (FP-OD-2) |
-| OD-21 | The stored division for that application | the `OD Default - <state>` placeholder for the chosen state, `IsPlaceholder = 1` — not the maker's own division, not null | **FAIL** — stored as `0` |
+| OD-20 | Submit a complete OD application; it must be stored with **no division** | `CustomerDivisionId = 0`, resolving to no `DivisionMaster` row | **pass** — this is the acceptance criterion |
+| OD-21 | A division chosen under Fleet must not follow the form into OD | stored with no division | **pass** on re-run; failed twice before with "Select Customer Sub Type" — see note |
 | OD-22 | Exactly one placeholder division per business state | 15 states, 15 placeholders, no duplicates | **pass** |
-| OD-23 | A reviewer exists for the placeholder division | **at risk — see below** | **none exists** |
+| OD-23 | An OD application with no division can still be reviewed | it advances past review | **pass** — 1000514956 (division 0) reached 105 |
 
 ---
 
 ## The risk this change carries
 
-Division has never been decoration on this form: it decides which TSM sees the
-application. Measured today:
+Written first on a misreading — that an OD application storing no division was a
+defect — and corrected here, because the correction matters more than the original
+worry.
 
-- `dbo.TSMDivisionMapping` — **no TSM is mapped to any placeholder division**.
-- `dbo.UserLocationMapping` — **no officer's location mapping points at one**.
-- No customer and no in-flight application uses one yet, so nothing has hit this.
-- The last ten OD applications all carried **real** divisions (Noida, Hyderabad,
-  Ahmedabad I/II, Kolkata, Baroda, Dehradun) and all reached status 101, Active.
+`CustomerDivisionId = 0` **is the change working.** The client asked for the division
+level to stop applying to OD, and it has. The fear that a division-less application
+would land in a queue no reviewer is mapped to is answered by the product: reference
+1000514956 carries division 0 and has reached status 105, Pending for Approval.
 
-If an OD application raised after this change is divisioned to a placeholder, and
-review is still division-scoped, it lands in a queue no reviewer is mapped to and
-sits at 102, Pending for Review, indefinitely. This suite has already lost a day to
-exactly that failure mode on Hyderabad-vs-Gurgaon, and it is invisible from the
-maker's side — the form reports success.
+What remains genuinely untested is one step further on. Every one of the 135 approved
+OD customers in `dbo.CustomerMaster` carries a real division, the most recent created
+21 September — all of them pre-fix. **No approved OD customer without a division has
+existed yet.** So no downstream screen has been shown one, and every module that
+filters customers by division — vehicle approval, bulk mapping and de-mapping,
+reports, credit — is unexercised against this change. If any of them scopes by
+division the way View Onboarding used to, a post-fix OD customer could disappear from
+it, and nothing on screen would say so.
 
-OD-20 and OD-23 exist to find out which of two things is true: OD skips
-division-scoped review, or OD applications have just become unreviewable.
-
----
+That is the real risk, and it needs an approved post-fix OD customer to test.
 
 ## Not covered yet
 
@@ -110,32 +110,61 @@ division-scoped review, or OD applications have just become unreviewable.
 
 ## Results, 22 September 2026
 
-**17 tests: 10 pass, 7 fail.** Every failure is a distinct defect, filed in
-[OD-JIRA-TICKETS.md](OD-JIRA-TICKETS.md).
+### Does the fix work? — mostly yes
 
-**The change request itself is implemented and works.** Division is not offered for an
-OD enrolment, the other three customer types keep it unchanged, and no pin code is
-judged against a division any more — a pin code in another state, and one in another
-region, both resolve and are accepted, while an unresolvable pin code is still refused.
+| What the change asked for | Verdict |
+|---|---|
+| Division not offered during OD enrolment | **works** — hidden on a clean form, across all 15 business states |
+| No pin code judged against a division | **works** — another state and another region both accepted; an unresolvable pin code still refused |
+| An OD application carries no division | **works** — stored as `CustomerDivisionId = 0` |
+| OD still reviewable without a division | **works** — 1000514956 reached 105 |
+| Division level stops applying to OD visibility | **works** — a division admin is no longer excluded by division |
+| Region and state still apply to OD visibility | **FAILS** — FP-OD-1 |
 
-What testing around it found:
+### Are other customer types hampered? — one issue
+
+| Check | Verdict |
+|---|---|
+| Division still visible, enabled and required for Fleet / Non Fleet / Corporate | **pass** |
+| Division returns when the type is switched back from OD | **pass** |
+| Non-OD applications still scoped by region, state **and** division | **pass** — zero out of scope, for both officers tested |
+| All Fleet customers still carry a division | **pass** — 104,740 of 104,740 |
+| Dependent dropdowns reload when their parent changes | **FAILS** — FP-OD-3, and it reaches the Fleet path |
+
+### One result that is not stable
+
+OD-21 raises an application by choosing Fleet and a division first, then switching to
+OD. It failed twice with the submit refused — inline "Select Customer Sub Type" beside
+a sub-type reading "Aggregator" — and passed on the third run, after a guard was added
+that re-picks the sub-type when a cascade reload blanks it. So the **submit blockage
+under Fleet → OD is intermittent**, depending on whether the reload lands before or
+after the selection.
+
+The underlying fault is not intermittent. OD-05 and OD-05b fail every run: the
+division list never reloads when the business state changes, under OD or under Fleet.
+Both symptoms are the same cause, and FP-OD-3 rests on the deterministic one.
+
+### Defects
 
 | Ticket | Priority | Defect |
 |---|---|---|
-| FP-OD-1 | **P0** | OD applications are visible to every officer in the country; non-OD applications on the same screen are correctly scoped |
-| FP-OD-2 | **P1** | A submitted OD application is stored with `CustomerDivisionId = 0`; the fifteen new `OD Default` placeholder divisions are unused |
-| FP-OD-3 | **P1** | Changing the customer type or the business state does not reload the dependent dropdown, so a Fleet sub-type survives into OD and blocks submit with a misleading message |
-| FP-OD-4 | P2 | The hidden division keeps its value under OD (`17`), though it does not reach the database |
+| FP-OD-1 | **P1** | The removal took region and state with it: an OD application is visible to officers with no claim to its region or state. Non-OD rows on the same screen respect all three levels. Predates the change; may be intended — needs a BA ruling |
+| FP-OD-2 | ~~P1~~ | **Withdrawn.** Division 0 is the fix working. Two leftovers: 15 unused `OD Default` placeholder divisions, and nothing downstream tested against a division-less OD customer |
+| FP-OD-3 | **P1** | Changing the customer type or business state does not reload the dependent dropdown. Fleet's sub-type survives into OD and blocks submit with "Select Customer Sub Type" beside a filled dropdown. Also lets a Fleet application carry a division from another state |
+| FP-OD-4 | P3 | The hidden division keeps its value under OD (`17`). Does not reach the database |
 | FP-OD-5 | P2 | A duplicate PAN is reported as "validate the PAN before submission" |
 
 ### The hierarchy question, answered
 
 Asked: can a state admin, division admin or territory admin see a created OD customer?
 
-**Yes — and so can every other one, anywhere in the country.** Measured on View
-Onboarding (`/Customer/CustomerOnboardingStatus`), which is the officers' screen; the
-Add Customer list shows them nothing at all, and Review Onboarding is refused to
-region, state and division admins since they are not reviewers.
+**Yes — and so can officers in other regions and states.** Which is two findings in
+one: the division level correctly stops excluding anyone, and the region and state
+levels stop excluding anyone too, which was not asked for.
+
+Measured on View Onboarding (`/Customer/CustomerOnboardingStatus`), the officers'
+screen; the Add Customer list shows them nothing at all, and Review Onboarding is
+refused to region, state and division admins since they are not reviewers.
 
 | Officer | Scope | Sees the OD application raised in GJ_I? | Sees non-OD outside scope? |
 |---|---|---|---|
@@ -144,8 +173,10 @@ region, state and division admins since they are not reviewers.
 | Division admin `9073139002` | region 4, state 11, division 1 | yes | **no** — correctly scoped |
 | Territory admin `9612200200` | region 2, state 4, division 17 | **yes** — another region entirely | **no** — correctly scoped |
 
-The last two rows are the finding. Both officers see only their own division's Fleet
-applications and every OD application in the system.
+Both officers see only their own division's Fleet applications, and OD applications
+from across the country. Measured with the division ignored for OD, the territory
+admin still sees 5 of 8 OD applications outside its region or state, and the division
+admin 7 of 10 — while neither sees a single non-OD application outside scope.
 
 ### Still not covered
 
