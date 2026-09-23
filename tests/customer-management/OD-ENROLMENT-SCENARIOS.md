@@ -256,3 +256,52 @@ Reproduce or extend with `tools/create-od-logins.spec.ts`, which skips any stage
 application has already passed. The temporary password arrives in `dbo.UserSMSLog` and
 `tools/set-officer-passwords.spec.ts` now takes an `OFFICER_MOBILES` override, so it can
 put a customer onto a known password as well as an officer.
+
+
+---
+
+## GJ_I test accounts
+
+All on `Nayara@1`, all verified by a cold sign-in.
+
+| Role | Username | Scope |
+|---|---|---|
+| Region Admin | 9072986100 | region 4, West |
+| State Admin | 9073068501 | region 4, state 11 GJ_I |
+| Division Admin — Ahmedabad I | 9073139002 | + division 1 |
+| Division Admin — Ahmedabad II | 9063600900 | + division 2 |
+| **Territory Admin (TSM) — Ahmedabad I** | **9111181007** | + division 1 |
+| **Territory Admin (TSM) — Ahmedabad II** | **7486836430** | + division 2 |
+| OD customer (WB_NE) | 9149056894 | dummy division 53 |
+
+### The TSMs could not be created, only activated
+
+The officer API cannot make a TSM. It derives the user type from the node type it is
+given and knows only three — ZONE, State and DIVISION, producing a region, state or
+division admin. Asked for a TERRITORY node it answers `Invalid nodeType`, inside a
+response whose top level still reads `Success: 1`.
+
+GJ_I already had TSMs for both divisions — 222 location rows between them — but not one
+could sign in: no `dbo.UserAuthStatus` row and no password ever issued. They were
+directory entries, written with `Useragent = 'Web'` and tied to divisions through
+`dbo.TSMDivisionMapping` by a service account, which is a different pipeline from the one
+this suite can reach.
+
+What worked was the pre-login **Forgot Password** flow. It accepts a mobile that has
+never signed in, sends an OTP, and then issues a temporary password by SMS — which
+creates the missing `UserAuthStatus` row as a side effect. So an existing TSM can be
+activated even though a new one cannot be created.
+
+Its SMS wording differs from the activation one, and the difference matters:
+
+    activation      "Username:  9149056894. Temporary Password:  a#vmWc16WK6."
+    password reset  "your temporary FLEETPLUS account password is %XZmFbq9uS."
+
+`tools/set-officer-passwords.spec.ts` now reads both.
+
+### One data observation
+`9111181007` has **29** rows in `dbo.Users`, and `7486836430` has **30**, every one of
+them TERRITORY_ADMIN against a GJ_I division. Which row a sign-in resolves to is not
+determined by anything visible. It does not stop the account working, and it is not
+related to the OD change, but any test that looks a TSM up by mobile and expects one row
+will be wrong here.

@@ -48,15 +48,36 @@ const OFFICERS = process.env.OFFICER_MOBILES
   ? process.env.OFFICER_MOBILES.split(',').map(m => ({ mobile: m.trim(), label: `account ${m.trim()}` }))
   : DEFAULT_OFFICERS;
 
-/** The temporary password, read out of the activation SMS. */
+/**
+ * The temporary password, read out of whichever SMS issued one.
+ *
+ * There are two wordings and they are not interchangeable:
+ *
+ *   activation      "... Username:  9149056894. Temporary Password:  a#vmWc16WK6. Please log in ..."
+ *   password reset  "... your temporary FLEETPLUS account password is %XZmFbq9uS. Please log in ..."
+ *
+ * The second comes from the pre-login Forgot Password flow, which is the only way to get
+ * a password onto an account that was created without one — every TERRITORY_ADMIN in GJ_I
+ * is in that state. Matching only on the adjacent words "Temporary Password" misses it
+ * entirely, because that wording separates them with "FLEETPLUS account".
+ */
 async function temporaryPassword(mobile: string): Promise<string | null> {
   const rows = await DbHelper.query<{ SMSText: string }>(
-    `SELECT TOP 1 SMSText FROM dbo.UserSMSLog
-      WHERE MobileNo = @mobile AND SMSText LIKE '%Temporary Password%'
+    `SELECT TOP 5 SMSText FROM dbo.UserSMSLog
+      WHERE MobileNo = @mobile
+        AND (SMSText LIKE '%Temporary Password%' OR SMSText LIKE '%temporary%password is%')
       ORDER BY Id DESC`,
     { mobile }
   );
-  return rows[0]?.SMSText?.match(/Temporary Password:\s*(\S+?)\.\s/)?.[1] ?? null;
+
+  for (const row of rows) {
+    const text = row.SMSText ?? '';
+    const activation = text.match(/Temporary Password:\s*(\S+?)\.\s/)?.[1];
+    if (activation) return activation;
+    const reset = text.match(/password is\s+(\S+?)\.(?:\s|$)/i)?.[1];
+    if (reset) return reset;
+  }
+  return null;
 }
 
 test.use({ storageState: { cookies: [], origins: [] } });
