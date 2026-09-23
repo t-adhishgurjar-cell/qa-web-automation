@@ -301,13 +301,83 @@ they have already completed correctly.
 
 ---
 
+## FP-OD-6 — P1 — An OD application cannot be reviewed: "Reviewed" is inert
+
+**Type:** Bug **Priority:** P1 — blocks OD onboarding end to end
+**Component:** Customer Management / OD review
+
+### Summary
+On `/Customer/ReviewCustomerDetails` for an OD application, the "Reviewed" control does
+nothing. With both document acknowledgements ticked and remarks filled, clicking it
+sends **no request**, opens **no dialog**, shows **no validation message**, and leaves
+the application at 102. Nothing on screen indicates a precondition is unmet.
+
+Consequence: an OD application can be raised and consented, and then cannot advance.
+No OD customer can be onboarded through this path.
+
+### Steps to reproduce
+1. Raise an OD application as a DSA and complete customer consent — it reaches 102,
+   Pending for Review.
+2. Sign in as TSM / Territory Admin `9612200200` and open
+   **Customer Management → Review Onboarding**. The application is listed.
+3. Open it. Tick `#reviewerPanDocAck` and `#reviewerBankDocAck`; both accept the tick.
+4. Fill `#Remarks`.
+5. Click **Reviewed** (`#btnApprove`).
+
+### Expected
+The application advances to 105, Pending for Approval.
+
+### Actual
+Nothing happens. Status stays 102. Measured on references 1000514990 (GJ_I) and
+1000514991 (WB_NE): both consented successfully (107 → 102) and both then stalled.
+
+The control is an anchor driven by a delegated handler:
+
+```html
+<a id="btnApprove" class="btn btn_primary w-auto" data-action="ApproveCustomer"
+   data-args="[105]" href="#"><i class="fa fa-check">&nbsp;</i> Reviewed</a>
+```
+
+It is not disabled and carries no `disabled` class, so a client-side precondition is
+failing silently rather than the control being switched off.
+
+### It is not a scope problem
+Worth stating because it was the first suspicion. These applications carry the dummy
+divisions 61 (GJ_I) and 53 (WB_NE), which no TSM is mapped to — yet the Gurgaon TSM
+(region 2, state 4, division 17) finds **both** in its reviewer queue and opens both
+detail pages without refusal. That is FP-OD-1 showing up on a second screen, and it
+means review is reachable; the button itself is the blocker.
+
+### Not only our applications
+Reference **1000514973**, raised at 11:08 today by DSA `8527769693` — not by this suite
+— is also sitting at 102. The only OD application to get past review recently is
+1000514956, which advanced at 18:36 on 22 September. So this looks like a regression
+introduced between yesterday evening and this morning, in the same window as the dummy
+division assignment going live (09:53–11:08 on 23 September).
+
+### Not yet checked
+Whether the gate is "the reviewer must open each uploaded document first". The OD review
+page offers three preview controls — `#btnCheckerViewPanCardOd`,
+`#btnCheckerViewMakerAddressProof`, `#btnCheckerViewBankProof` — and a precondition of
+that shape would explain a silent refusal. The experiment was written and not run: the
+database connection dropped (`ECONNRESET`) before it could be measured.
+
+### Evidence
+`tools/create-od-logins.spec.ts` — drives consent, review and approval; stops here.
+`tools/probe-od-review-drive.spec.ts` — performs each review step explicitly and reports
+after each one. `tools/probe-od-review-gate.spec.ts` — dumps the control and the page's
+scripts.
+
+---
+
 ## Still to do
 
 - **Rewrite OD-20** to assert `CustomerDivisionId = 0` — the real acceptance criterion
   for this change. It currently asserts the placeholder division and fails for that
   reason, not because the application is wrong.
-- **Raise one Fleet application** to restore the deterministic control on View
-  Onboarding, and settle FP-OD-1.
+- **FP-OD-6 first** — until "Reviewed" works, no OD customer can be created, and every
+  downstream check below is blocked behind it.
+- **Test the view-documents hypothesis** for FP-OD-6.
 - **Approve a post-fix OD customer** — one carrying a dummy division — and check the
   screens that read `CustomerDivisionId`: vehicle approval, bulk mapping and
   de-mapping, reports, credit. Only one such customer exists so far
