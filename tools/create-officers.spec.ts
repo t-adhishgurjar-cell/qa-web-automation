@@ -38,6 +38,8 @@ import { freshMobile, runTag } from '../src/helpers/test-identity';
  */
 
 interface Target {
+  /** Selector for --grep-free targeting, see OFFICER_TARGET_KEYS below. */
+  key: string;
   label: string;
   userType: OfficerUserType;
   nodeName: string;
@@ -45,23 +47,47 @@ interface Target {
   expect: { RegionId: number; BusinessStateId: number | null; DivisionId: number | null };
 }
 
-const TARGETS: Target[] = [
+const ALL_TARGETS: Target[] = [
   // Ahmedabad I — DivisionId 1, DMId DOAHMEDA1, GJ_I (11), West (4)
-  { label: 'Ahmedabad — Region Admin (West zone)', userType: 'REGION_ADMIN', nodeName: 'WEST Zone',
+  { key: 'ahm1-region', label: 'Ahmedabad — Region Admin (West zone)', userType: 'REGION_ADMIN', nodeName: 'WEST Zone',
     expect: { RegionId: 4, BusinessStateId: null, DivisionId: null } },
-  { label: 'Ahmedabad — State Admin (GJ_I)', userType: 'STATE_ADMIN', nodeName: 'BSTGUJ1',
+  { key: 'ahm1-state', label: 'Ahmedabad — State Admin (GJ_I)', userType: 'STATE_ADMIN', nodeName: 'BSTGUJ1',
     expect: { RegionId: 4, BusinessStateId: 11, DivisionId: null } },
-  { label: 'Ahmedabad I — Division Admin', userType: 'DIVISION_ADMIN', nodeName: 'DOAHMEDA1',
+  { key: 'ahm1-division', label: 'Ahmedabad I — Division Admin', userType: 'DIVISION_ADMIN', nodeName: 'DOAHMEDA1',
     expect: { RegionId: 4, BusinessStateId: 11, DivisionId: 1 } },
 
+  // Ahmedabad II — DivisionId 2, DMId DOAHMEDA2, GJ_I (11), West (4).
+  // Same business state and zone as Ahmedabad I, so only the division differs —
+  // which makes the pair useful for testing division-level scope without any other
+  // variable moving.
+  { key: 'ahm2-division', label: 'Ahmedabad II — Division Admin', userType: 'DIVISION_ADMIN', nodeName: 'DOAHMEDA2',
+    expect: { RegionId: 4, BusinessStateId: 11, DivisionId: 2 } },
+
   // Kolkata — DivisionId 26, DMId DOKOLKAT, WB_NE (3), East (1)
-  { label: 'Kolkata — Region Admin (East zone)', userType: 'REGION_ADMIN', nodeName: 'EAST Zone',
+  { key: 'kol-region', label: 'Kolkata — Region Admin (East zone)', userType: 'REGION_ADMIN', nodeName: 'EAST Zone',
     expect: { RegionId: 1, BusinessStateId: null, DivisionId: null } },
-  { label: 'Kolkata — State Admin (WB_NE)', userType: 'STATE_ADMIN', nodeName: 'BSTWBNE',
+  { key: 'kol-state', label: 'Kolkata — State Admin (WB_NE)', userType: 'STATE_ADMIN', nodeName: 'BSTWBNE',
     expect: { RegionId: 1, BusinessStateId: 3, DivisionId: null } },
-  { label: 'Kolkata — Division Admin', userType: 'DIVISION_ADMIN', nodeName: 'DOKOLKAT',
+  { key: 'kol-division', label: 'Kolkata — Division Admin', userType: 'DIVISION_ADMIN', nodeName: 'DOKOLKAT',
     expect: { RegionId: 1, BusinessStateId: 3, DivisionId: 26 } },
 ];
+
+/**
+ * Which of them to create, because every run of this file mints real users.
+ *
+ * Without this the file is all-or-nothing, and needing one more officer means creating
+ * seven — six of them duplicates of accounts that already exist and work. That has
+ * already happened here once, leaving six strays behind.
+ *
+ *   OFFICER_TARGET_KEYS=ahm2-division TOOLS=true ENV=qa npx playwright test \
+ *     --project=tools --grep "create officers"
+ *
+ * Unset creates all of them, which is what the first run needed.
+ */
+const SELECTED = (process.env.OFFICER_TARGET_KEYS ?? '').split(',').map(k => k.trim()).filter(Boolean);
+const TARGETS = SELECTED.length
+  ? ALL_TARGETS.filter(t => SELECTED.includes(t.key))
+  : ALL_TARGETS;
 
 interface Row {
   Id: number; MobileNumber: string; UserTypeId: number;

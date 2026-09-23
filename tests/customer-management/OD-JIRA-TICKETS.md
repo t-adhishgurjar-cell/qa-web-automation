@@ -98,15 +98,18 @@ are each other's control, and the same officer is measured on both in the same r
 | Ahmedabad Region Admin `9072986100` | region 4 (West) | visible | **visible** — should not be |
 | Ahmedabad State Admin `9073068501` | region 4, state 11 | visible | **visible** — should not be |
 | Ahmedabad I Division Admin `9073139002` | region 4, state 11, division 1 | visible | **visible** — should not be |
+| Ahmedabad II Division Admin `9063600900` | region 4, state 11, division 2 | visible | **visible** — should not be |
 | Kolkata Region Admin `9073209903` | region 1 (East) | visible | **visible** — should not be |
 | Kolkata State Admin `9073275904` | region 1, state 3 | visible | **visible** — should not be |
 | Kolkata Division Admin `9073340105` | region 1, state 3, division 26 | visible | **visible** — should not be |
 
-**Every officer sees both.** Six officers, three scope levels, two regions, and not one
+**Every officer sees both.** Seven officers, three scope levels, two regions, and not one
 variation between them — which is what "no location filter is applied to OD" looks like.
 Note also that the division admins do correctly see their own region's OD application
 even though it carries the state's dummy division rather than their own: the division
-level has stopped restricting OD, exactly as asked.
+level has stopped restricting OD, exactly as asked. The two Ahmedabad admins make that
+precise — division 1 and division 2, same state and zone, and the application's dummy is
+61, neither of theirs. Both see it.
 
 The dummy division makes the remaining fix cheap. Each dummy belongs to one business
 state — 61 is GJ_I, 53 is WB_NE — so filtering on it gives precisely the intended

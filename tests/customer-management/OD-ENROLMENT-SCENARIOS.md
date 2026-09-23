@@ -166,11 +166,18 @@ control, so nothing rests on how a different customer type is treated.
 | Ahmedabad Region Admin | region 4, West | visible | **visible** |
 | Ahmedabad State Admin | region 4, state 11 | visible | **visible** |
 | Ahmedabad I Division Admin | region 4, state 11, division 1 | visible | **visible** |
+| Ahmedabad II Division Admin | region 4, state 11, division 2 | visible | **visible** |
 | Kolkata Region Admin | region 1, East | visible | **visible** |
 | Kolkata State Admin | region 1, state 3 | visible | **visible** |
 | Kolkata Division Admin | region 1, state 3, division 26 | visible | **visible** |
 
-Six officers, three scope levels, two regions, no variation at all. The division admins
+Seven officers, three scope levels, two regions, no variation at all.
+
+The two Ahmedabad division admins are the tightest control here. They differ only in
+division — 1 and 2, same state GJ_I, same West zone — and the GJ_I application carries
+the dummy division 61, which is neither. Both see it, which is the change working
+exactly as asked: the division level no longer decides. Both also see Kolkata's, which
+is not. The division admins
 correctly see their own region's OD application despite it carrying the state's dummy
 division rather than theirs — the division level has stopped restricting, as asked. What
 has also stopped is region and state.

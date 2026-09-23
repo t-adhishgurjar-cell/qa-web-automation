@@ -76,6 +76,12 @@ const OFFICERS = [
   { level: 'Ahmedabad Region Admin', username: '9072986100', scope: 'region 4 (West)', sees: 'ahmedabad' },
   { level: 'Ahmedabad State Admin', username: '9073068501', scope: 'region 4, state 11 (GJ_I)', sees: 'ahmedabad' },
   { level: 'Ahmedabad I Division Admin', username: '9073139002', scope: 'region 4, state 11, division 1', sees: 'ahmedabad' },
+  // Division 2 in the same state and zone as division 1. The pair is the tightest
+  // control available for the division level: an OD application in GJ_I carries the
+  // dummy division 61, which is neither 1 nor 2, so both admins must see it — that is
+  // the change working. Anything that distinguishes them would mean the division is
+  // still being matched against OD.
+  { level: 'Ahmedabad II Division Admin', username: '9063600900', scope: 'region 4, state 11, division 2', sees: 'ahmedabad' },
   { level: 'Kolkata Region Admin', username: '9073209903', scope: 'region 1 (East)', sees: 'kolkata' },
   { level: 'Kolkata State Admin', username: '9073275904', scope: 'region 1, state 3 (WB_NE)', sees: 'kolkata' },
   { level: 'Kolkata Division Admin', username: '9073340105', scope: 'region 1, state 3, division 26', sees: 'kolkata' },
