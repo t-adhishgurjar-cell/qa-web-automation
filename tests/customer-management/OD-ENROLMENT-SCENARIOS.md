@@ -65,10 +65,10 @@ change request asked for; the tests below pin that down so a regression is visib
 
 | # | Scenario | Expected | Result |
 |---|---|---|---|
-| OD-20 | Submit a complete OD application; it must be stored with **no division** | `CustomerDivisionId = 0`, resolving to no `DivisionMaster` row | **pass** — this is the acceptance criterion |
-| OD-21 | A division chosen under Fleet must not follow the form into OD | stored with no division | **pass** on re-run; failed twice before with "Select Customer Sub Type" — see note |
+| OD-20 | Submit a complete OD application; it must carry its state's dummy division | `OD Default - <state>`, `IsPlaceholder = 1` | **pass** — 54 for HR_HP_PB |
+| OD-21 | A division chosen under Fleet must not follow the form into OD | stored with the dummy, not Gurgaon | **pass** — chose 17, stored 54 |
 | OD-22 | Exactly one placeholder division per business state | 15 states, 15 placeholders, no duplicates | **pass** |
-| OD-23 | An OD application with no division can still be reviewed | it advances past review | **pass** — 1000514956 (division 0) reached 105 |
+| OD-23 | An OD application can be reviewed and approved on a dummy division | it reaches Active | **pass** — 1000514956 is 101, customer NAYAFP3023400261, division 57 |
 
 ---
 
@@ -116,10 +116,10 @@ That is the real risk, and it needs an approved post-fix OD customer to test.
 |---|---|
 | Division not offered during OD enrolment | **works** — hidden on a clean form, across all 15 business states |
 | No pin code judged against a division | **works** — another state and another region both accepted; an unresolvable pin code still refused |
-| An OD application carries no division | **works** — stored as `CustomerDivisionId = 0` |
-| OD still reviewable without a division | **works** — 1000514956 reached 105 |
+| An OD application carries the dummy division for its state | **works** — 54 for HR_HP_PB, 57 for UP_UK |
+| OD still reviewable and approvable | **works** — 1000514956 is Active |
 | Division level stops applying to OD visibility | **works** — a division admin is no longer excluded by division |
-| Region and state still apply to OD visibility | **FAILS** — FP-OD-1 |
+| Region and state still apply to OD visibility | **FAILS on View Onboarding** — FP-OD-1, control needs restoring |
 
 ### Are other customer types hampered? — one issue
 

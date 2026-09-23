@@ -43,16 +43,38 @@ const UPLOAD = path.join(__dirname, '../../test-data/files/sample-doc.pdf');
 const MAKER_DIVISION_NAME = 'Gurgaon';
 const MAKER_STATE = 'HR_HP_PB';
 /**
- * Present but deliberately unused.
+ * The dummy division for the maker's business state — what an OD application must
+ * actually carry.
  *
- * dbo.DivisionMaster carries fifteen "OD Default - <state>" rows with
- * IsPlaceholder = 1, created 2026-09-22 16:11. A first version of this test asserted
- * an OD application would be stored against the one for its state, which was a guess
- * at the implementation rather than a reading of the requirement — and it failed for
- * that reason while the application was in fact correct. Kept only so the assertion
- * below can say what was NOT stored.
+ * This is dev's mechanism for the change: rather than leave an OD customer with no
+ * division, dbo.DivisionMaster holds one dummy division per active business state
+ * (DivisionId 51-65, IsPlaceholder = 1, one for each of the fifteen states), and an
+ * OD enrolment is assigned the one belonging to the state chosen on the form. The
+ * division stops being a restriction without becoming null.
+ *
+ * This assertion has been wrong twice, in opposite directions, and both times the
+ * environment was the reason rather than the requirement:
+ *
+ *   It first asserted the dummy division and failed — every application was stored
+ *   with CustomerDivisionId 0. That looked like the mechanism not working.
+ *
+ *   It was then changed to assert 0, on the reading that "remove the division from
+ *   OD" meant no division at all. It passed.
+ *
+ *   Measured again later the same day, the same maker and the same business state
+ *   produced 54, OD Default - HR_HP_PB. The dummy rows were created 2026-09-22
+ *   16:11; the code that assigns them went live between 09:53 and 11:08 on 2026-09-23.
+ *   Everything raised before that window got 0, everything after got its dummy.
+ *
+ * So the lesson is in the assertion rather than the comment: it checks the dummy for
+ * whichever state the form was given, and names the window above when it fails, so
+ * the next person does not conclude from one number that the feature is broken.
  */
-const PLACEHOLDER_FOR_MAKER_STATE = 'OD Default - HR_HP_PB';
+const DUMMY_DIVISION_BY_STATE: Record<string, string> = {
+  HR_HP_PB: 'OD Default - HR_HP_PB',
+  UP_UK: 'OD Default - UP_UK',
+  GJ_I: 'OD Default - GJ_I',
+};
 
 /** Deliberately in another state — the pin code must no longer be judged by division. */
 const CROSS_STATE_PIN = '201304';
@@ -150,18 +172,19 @@ test.describe('OD enrolment — submitted @customer-management @regression', () 
     return rows[0];
   };
 
-  test('OD-20 a clean OD application is stored with no division at all', async ({
+  test('OD-20 a clean OD application is stored against its state\'s dummy division', async ({
     addCustomerPage, db,
   }) => {
     test.setTimeout(420_000);
     await story('What the server stores for OD');
     await severity('critical');
     await description(
-      'The acceptance criterion for the change. The client asked for the division ' +
-        'level of the hierarchy to be removed from OD, so an OD application must be ' +
-        'stored with NO division — not the maker\'s own, and not a substitute. ' +
-        'Raised with OD chosen as the first action, so no division was ever picked, ' +
-        'and with an address pin code in another state.'
+      'The acceptance criterion for the change. The division stops being a ' +
+        'restriction on OD by being replaced with the dummy division for the ' +
+        'business state, not by being left empty — so an OD application must carry ' +
+        'the OD Default division for its state, and never the maker\'s own. Raised ' +
+        'with OD chosen as the first action, so no division was ever picked, and with ' +
+        'an address pin code in another state.'
     );
 
     const tag = runTag();
@@ -191,29 +214,31 @@ test.describe('OD enrolment — submitted @customer-management @regression', () 
     const stored = await storedDivision(db, reference);
     console.log(`OD-20 stored: ${JSON.stringify(stored)}`);
 
-    // No division, expressed as the application stores it: CustomerDivisionId 0,
-    // which resolves to no DivisionMaster row at all.
-    expect(
-      stored.CustomerDivisionId,
-      `The OD application was stored against division ${stored.CustomerDivisionId} ` +
-        `("${stored.DivisionName}"). The change removes the division level from OD, so ` +
-        `an OD application should carry no division — any division here means the ` +
-        `hierarchy is still being applied to OD somewhere.`
-    ).toBe(0);
+    const expectedDummy = DUMMY_DIVISION_BY_STATE[MAKER_STATE];
 
     expect(
       stored.DivisionName,
-      `Division ${stored.CustomerDivisionId} resolves to "${stored.DivisionName}". ` +
-        `A stored division of 0 should match no row in DivisionMaster.`
-    ).toBeNull();
+      `The OD application is stored against "${stored.DivisionName}" ` +
+        `(DivisionId ${stored.CustomerDivisionId}) instead of the dummy division for ` +
+        `${MAKER_STATE}.\n\n` +
+        `If this says division 0 and no name, the environment is probably running a ` +
+        `build where the fifteen OD Default rows exist but nothing assigns them — ` +
+        `that was true of webqa between 2026-09-22 16:11 and 2026-09-23 11:08, and ` +
+        `every OD application raised in that window carries 0. Check when the ` +
+        `application was created before reading this as the mechanism failing.\n\n` +
+        `If it names a real division, the maker's own division is being imposed on an ` +
+        `OD enrolment, which is what this change removed.`
+    ).toBe(expectedDummy);
 
-    // Two specific wrong answers worth naming, because each would look plausible:
-    // the maker's own division, which is what the form used to impose, and the
-    // OD Default placeholder, which exists in the data but is not used.
     expect(
-      [MAKER_DIVISION_NAME, PLACEHOLDER_FOR_MAKER_STATE],
-      `The application carries "${stored.DivisionName}".`
-    ).not.toContain(stored.DivisionName);
+      stored.IsPlaceholder,
+      `"${stored.DivisionName}" is a real division, not a dummy one.`
+    ).toBeTruthy();
+
+    expect(
+      stored.DivisionName,
+      `The application carries the maker's own division.`
+    ).not.toBe(MAKER_DIVISION_NAME);
   });
 
   test('OD-21 a division chosen under Fleet does not follow the form into OD', async ({

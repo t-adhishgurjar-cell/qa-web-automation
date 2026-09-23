@@ -10,11 +10,25 @@ untouched.
 
 So there are two questions, and they are answered separately below.
 
-**1. Does the fix work?** Largely yes. Division is not offered for an OD enrolment,
-no pin code is judged against a division, an OD application is stored with no
-division (`CustomerDivisionId = 0`) by design, and review routing does not need one —
-reference 1000514956 carries division 0 and has reached status 105, Pending for
-Approval. One thing went further than the request: see FP-OD-1.
+**How the change is built.** Dev's mechanism is a dummy division per active business
+state: fifteen `OD Default - <state>` rows in `dbo.DivisionMaster` (`DivisionId` 51–65,
+`IsPlaceholder = 1`), one for each of the fifteen active states, assigned to an OD
+enrolment according to the business state chosen on the form. The division stops being
+a restriction without becoming null.
+
+**A deploy window that invalidates earlier measurements.** The dummy rows were created
+2026-09-22 16:11. The code that assigns them went live between **09:53 and 11:08 on
+2026-09-23**. Every OD application raised before that window carries
+`CustomerDivisionId = 0`; every one after carries its state's dummy. Measurements
+taken on 22 September and early on 23 September therefore describe a half-deployed
+build, and two findings below were written from them.
+
+**1. Does the fix work?** Yes, on the current build. Division is not offered for an OD
+enrolment, no pin code is judged against a division, and an OD application is stored
+against the dummy division for its state — verified for HR_HP_PB (54) and UP_UK (57),
+including when a real division had been chosen under Fleet first, which is correctly
+discarded. Review routing works: 1000514956 has reached 101, Active. One question
+remains open: see FP-OD-1.
 
 **2. Are other customer types hampered?** Fleet, Non Fleet and Corporate all still
 show the division as visible, enabled and required; it returns correctly when the
@@ -24,20 +38,22 @@ exception is FP-OD-3, which does reach the Fleet path.
 
 ---
 
-## FP-OD-1 — P1 — The division level was removed from OD, and region and state went with it
+## FP-OD-1 — P1 — On View Onboarding, OD applications are not filtered by the officer's location
 
-**Type:** Bug **Priority:** P1 — needs a ruling, see Notes **Component:** Customer Management / OD
+**Type:** Bug **Priority:** P1 **Confidence:** needs one more measurement — see Control
+**Component:** Customer Management / OD
 
 ### Summary
-The change asked for the **division** level of the hierarchy to stop applying to OD.
-It no longer does, correctly. But region and state have stopped applying as well, and
-they were not part of the request — so an OD application is now visible to officers
-who have no claim to the region or the state it was raised in.
+On View Onboarding (`/Customer/CustomerOnboardingStatus`), OD applications appear
+regardless of the viewing officer's region, state or division. Non-OD applications on
+the same screen are filtered.
 
-This is measured with the division deliberately ignored for OD. The rows below are
-outside the officer's **region or state**, not merely outside their division. Non-OD
-applications on the same screen, for the same officers, still respect all three
-levels, which is what rules out "the screen is simply unscoped".
+The division part is correct and is what the change asked for. The region and state
+part is not: they were never part of the request, and an OD application is visible to
+officers with no claim to either. Reproduced on the current build, with dummy
+divisions correctly assigned — the territory admin for HR_HP_PB sees applications
+carrying dummy division 57, `OD Default - UP_UK`, which belongs to a different state.
+That dummy would have been enough to filter on.
 
 ### Steps to reproduce
 1. Sign in as territory admin `9612200200` — mapped to region 2, business state 4
@@ -74,11 +90,42 @@ In both cases the count of non-OD applications outside scope is **zero**.
 ### Evidence
 `tests/customer-management/od-hierarchy-visibility.spec.ts`. Its scope predicate
 ignores the division for OD and applies all three levels to everything else, so the
-failure is specifically about region and state. The non-OD control is asserted first,
-before any claim about OD.
+failure is specifically about region and state.
+
+### Control — why this is not yet marked confirmed
+The claim needs non-OD applications on the same screen, proving the screen filters
+anybody at all. On the first measurement it had them, and they were all inside the
+officer's own division:
+
+  territory admin  Fleet 1000514867, 1000514858 — both state 4, division 17
+  division admin   Fleet 1000514729 — state 11, division 1
+
+It no longer has them. View Onboarding lists only its ten most recent applications —
+pagination does not advance it and its date filter is a datepicker that ignores a
+programmatic fill — and this suite's own OD applications now occupy all ten. So the
+test currently stops at "the control is empty" rather than reporting the leak, which
+is the correct behaviour and is why the finding is not marked confirmed.
+
+To close this: raise one Fleet application from the same DSA, which lands in division
+17 / state 4 and will be among the ten most recent. It should then be visible to the
+territory admin and **not** to the Ahmedabad division admin. That single row restores a
+deterministic control, in both directions, and settles the ticket either way.
+
+A contrast worth recording, measured on Approved Customers
+(`/Customer/ManageCustomers`) where the control cannot run dry — 104,740 Fleet
+customers against 135 OD: **no OD customer leaks there.** For the Ahmedabad division
+admin, 2 OD customers were listed and both were within region and state. So whatever
+exempts OD appears specific to the in-flight applications screen, not to customers in
+general.
 
 ### Notes
-Two things to weigh before fixing:
+Three things to weigh before fixing:
+
+- **The dummy division makes the fix available.** Because each dummy belongs to one
+  business state, filtering on it would give exactly the intended behaviour: the
+  division stops restricting, the state still does. The data to do it is already
+  there and unused by this screen.
+
 
 - **It predates the change.** The leaked set includes OD applications raised on 16 and
   21 September carrying real divisions, so the behaviour keys on customer type rather
@@ -94,41 +141,40 @@ Two things to weigh before fixing:
 
 ## FP-OD-2 — WITHDRAWN — "A submitted OD application is stored with no division"
 
-**Status:** Withdrawn. Not a defect.
+**Status:** Withdrawn. Not a defect. The environment was mid-deploy when it was filed.
 
-This was filed on a misreading of the change request. A submitted OD application is
-stored with `CustomerDivisionId = 0`, and with the client's intent being to remove
-the division level from OD, that is the fix working rather than failing.
+Filed after every OD application raised on 22 September and early on 23 September was
+stored with `CustomerDivisionId = 0`, while fifteen `OD Default - <state>` rows sat
+unused in `dbo.DivisionMaster`. That looked like dev's mechanism having been created
+but never wired in.
 
-Two checks that would have caught the misreading, both now done and both reassuring:
+It was wired in later. Re-measured at 12:36 on 23 September, the same maker
+(`9611200199`) and the same business state (HR_HP_PB) that had produced 0 at 09:53
+produced **54, `OD Default - HR_HP_PB`, `IsPlaceholder = 1`**. UP_UK produces 57. So
+the assignment code went live between 09:53 and 11:08 that morning, and the zeros are
+artefacts of a half-deployed build rather than a defect.
 
-- **Review routing does not need a division.** Reference 1000514956 carries
-  `CustomerDivisionId = 0` and has reached status 105, Pending for Approval. The
-  concern that a division-less application would sit unreviewable is answered by the
-  product itself.
-- **Other customer types still carry divisions.** All 104,740 Fleet customers and all
-  135 existing OD customers in `dbo.CustomerMaster` have one; the OD figures are all
-  pre-fix, the latest created 21 September.
+This was withdrawn once before for the wrong reason — on a reading that "remove the
+division from OD" meant leave it null — and OD-20 was rewritten to assert 0, which
+passed. Both the original ticket and that withdrawal were wrong. The requirement is
+the dummy division, and OD-20 now asserts it, naming the deploy window in its failure
+message so the next person does not read one zero as the feature being broken.
 
-`tests/customer-management/od-enrolment-submit.spec.ts` OD-20 still asserts the old
-expectation and therefore still fails. **It needs rewriting to assert division 0 is
-stored**, which is the real acceptance criterion — tracked below under "Still to do".
+### What is now verified
 
-### Two things left over from it, neither a defect
+- An OD application carries the dummy division for the business state chosen on the
+  form: 54 for HR_HP_PB, 57 for UP_UK.
+- A division chosen under Fleet before switching to OD is discarded: reference
+  1000514982 was raised after selecting Gurgaon (17) and stored 54.
+- A dummy division exists and is active for all fifteen active business states.
+- Review and approval work without a real division: 1000514956 is at 101, Active, as
+  customer NAYAFP3023400261 with division 57.
 
-- **Fifteen unused placeholder divisions.** `dbo.DivisionMaster` gained rows
-  `OD Default - <business state>` (`DivisionId` 51–65, `IsPlaceholder = 1`) at
-  2026-09-22 16:11:52, one per business state. Nothing writes or reads them: no
-  application, no customer, no `TSMDivisionMapping` row, no `UserLocationMapping`
-  row. If the implementation settled on storing 0 instead, these are dead rows and
-  worth removing before they confuse someone; if they are meant to be used, the code
-  does not use them. A question for dev either way.
-- **No post-fix OD customer has been approved yet.** Every one of the 135 approved OD
-  customers carries a real division, all created on or before 21 September. So no
-  downstream screen has yet been shown an OD customer with no division, and anything
-  that filters customers by division — vehicle approval, bulk mapping, reports,
-  credit — has not been exercised against one. That is the untested risk this change
-  actually carries, and it is the next thing to test.
+### One leftover, not a defect
+
+No database code references `IsPlaceholder` or the `OD Default` rows — the assignment
+is in application code, so there is nothing in SQL to read when tracing this. Worth
+knowing for the next person who goes looking for it, as I did.
 
 ## FP-OD-3 — P1 — Changing the customer type does not reload its dependent dropdowns
 
@@ -257,10 +303,18 @@ they have already completed correctly.
 - **Rewrite OD-20** to assert `CustomerDivisionId = 0` — the real acceptance criterion
   for this change. It currently asserts the placeholder division and fails for that
   reason, not because the application is wrong.
-- **Approve a post-fix OD customer** and check the screens that read
-  `CustomerDivisionId`: Approved Customers, vehicle approval, bulk mapping and
-  de-mapping, reports. Nothing downstream has yet seen an OD customer without a
-  division.
+- **Raise one Fleet application** to restore the deterministic control on View
+  Onboarding, and settle FP-OD-1.
+- **Approve a post-fix OD customer** — one carrying a dummy division — and check the
+  screens that read `CustomerDivisionId`: vehicle approval, bulk mapping and
+  de-mapping, reports, credit. Only one such customer exists so far
+  (NAYAFP3023400261, division 57), raised by another maker.
+- **Some customer records disagree with themselves** about location:
+  NAYAFP2020900082 carries division 17 (Gurgaon, state 4) with `CustomerStateId` 7,
+  and NAYAFP1811754902 carries division 1 (Ahmedabad I, state 11) with
+  `CustomerStateId` 1. Pre-existing, unrelated to OD, and it will mislead any scope
+  test that derives the region from the state rather than from the division — as mine
+  briefly did.
 - **The Leads path.** `/Lead/LeadList` → Add Leads carries `#llAddPinCode` and no
   division field, and `LeadMaster.DivisionId` is still derived from the pin code —
   lead 47 has pin code 160019, Chandigarh, and DivisionId 17, Gurgaon. If the division

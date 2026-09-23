@@ -117,16 +117,44 @@ test.describe('OD hierarchy visibility @customer-management @regression', () => 
       // Cell by cell. The grid renders cells with no separator, so a row reads
       // "11000514939OD..." — the serial number runs into the reference — and any
       // match anchored on a word boundary finds nothing at all.
-      const references = await page.evaluate(() => {
-        const out: string[] = [];
-        for (const row of Array.from(document.querySelectorAll('table tbody tr'))) {
-          for (const cell of Array.from(row.querySelectorAll('td'))) {
-            const text = (cell.textContent || '').trim();
-            if (/^10005\d{5}$/.test(text)) out.push(text);
+      const readPage = async (): Promise<string[]> =>
+        page.evaluate(() => {
+          const out: string[] = [];
+          for (const row of Array.from(document.querySelectorAll('table tbody tr'))) {
+            for (const cell of Array.from(row.querySelectorAll('td'))) {
+              const text = (cell.textContent || '').trim();
+              if (/^10005\d{5}$/.test(text)) out.push(text);
+            }
           }
-        }
-        return [...new Set(out)];
-      });
+          return out;
+        });
+
+      // Read across pages, not just the first.
+      //
+      // The grid shows ten rows newest first, and this suite raises OD applications —
+      // so on a busy day page one is entirely OD and the non-OD control below has
+      // nothing in it. A control that passes on an empty set is worse than one that
+      // fails: it makes the OD conclusion look supported when nothing was compared
+      // against it. Bounded at ten pages, and stops as soon as a page adds nothing
+      // new, so a pagination control that silently does not advance ends the loop
+      // instead of spinning.
+      const seen = new Set<string>();
+      const next = page.locator('a.page-link, .paginate_button').filter({ hasText: /^›$|^next$/i }).first();
+
+      for (let pageNumber = 1; pageNumber <= 10; pageNumber++) {
+        const before = seen.size;
+        for (const reference of await readPage()) seen.add(reference);
+        if (seen.size === before && pageNumber > 1) break;
+        if (!(await next.isVisible().catch(() => false))) break;
+        const enabled = await next.evaluate(element =>
+          !element.classList.contains('disabled') &&
+          !element.parentElement?.classList.contains('disabled')).catch(() => false);
+        if (!enabled) break;
+        await next.click().catch(() => undefined);
+        await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+      }
+      const references = [...seen];
+      console.log(`  read ${references.length} reference(s) across the grid's pages`);
       expect(
         references.length,
         `View Onboarding listed nothing for ${officer.level}, so there is nothing to ` +
@@ -151,8 +179,18 @@ test.describe('OD hierarchy visibility @customer-management @regression', () => 
       console.log(`  outside this officer's scope — OD: ${odOutside.length}, other: ${otherOutside.length}`);
       for (const a of odOutside) console.log(`    leaked OD ${a.ReferenceNo}: ${JSON.stringify(a)}`);
 
-      // The control first: if the non-OD rows are also out of scope, the screen is
-      // simply unscoped and the OD result below carries no information.
+      // The control has to exist before it can control anything.
+      expect(
+        other.length,
+        `Not one non-OD application is on screen for ${officer.level}, so there is ` +
+          `nothing to establish that this screen scopes anybody. Without that, an OD ` +
+          `row from another state proves only that the row is there — not that it ` +
+          `should have been filtered. Widen the grid's page length or the date range ` +
+          `until at least one non-OD application is listed, then read the result.`
+      ).toBeGreaterThan(0);
+
+      // Then the control itself: if the non-OD rows are also out of scope, the screen
+      // is simply unscoped and the OD result below carries no information.
       expect(
         otherOutside,
         `Non-OD applications are also outside this officer's scope ` +
