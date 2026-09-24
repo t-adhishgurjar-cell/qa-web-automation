@@ -41,6 +41,9 @@ exception is FP-OD-3, which does reach the Fleet path.
 ## FP-OD-1 — P1 — On View Onboarding, OD applications are not filtered by the officer's location
 
 **Type:** Bug **Priority:** P1 **Component:** Customer Management / OD
+**This is the one functional defect of the set.** With the dummy divisions confirmed as storage
+only, visibility special-cases OD by customer type — and that exemption drops region and state
+along with the division. The fix belongs there, in the visibility rule, not in the data.
 **Reproduction:** `tests/customer-management/od-hierarchy-two-regions.spec.ts` — 6 of 6
 officers fail, symmetrically
 
@@ -350,9 +353,10 @@ network level across several states, which is a piece of work in its own right.
 
 ---
 
-## FP-OD-7 — P1 — The change is not applied to OD self-enrolment
+## FP-OD-7 — P3 — OD self-enrolment stores a real division instead of the dummy
 
-**Type:** Bug **Priority:** P1 **Component:** Customer Management / OD self-enrolment
+**Type:** Bug **Priority:** P3 — data consistency; no visibility impact, see Resolved below
+**Component:** Customer Management / OD self-enrolment
 
 ### Summary
 The requirement covers both enrolment paths. Only Add Customer implements it.
@@ -405,13 +409,35 @@ removes for Add Customer OD, still in force for self-enrolled OD.
 It is also the more exposed path of the two: the form is public and unauthenticated, and OD
 is Owner Driver — the segment most likely to enrol itself rather than be entered by a DSA.
 
-### One thing to confirm before fixing
-Whether the fix belongs at storage or at visibility. If the intent is that OD is never
-filtered by division regardless of what division it carries, then this record's real division
-is untidy but harmless, and the work is on the visibility side. If the intent is that an OD
-customer carries the dummy, the self-enrolment path needs the same assignment Add Customer
-got. The two produce the same result for Add Customer OD today, so the current behaviour does
-not distinguish them — and FP-OD-1 is in the same area.
+### Resolved: the dummy divisions are storage only, and this has no visibility impact
+Confirmed by dev, then measured. Visibility decides from the customer's **type**, not from
+whether its division is a placeholder — so a real division on an OD customer does not restrict
+who can see it.
+
+The measurement, on two OD customers that predate the change and carry real divisions in the
+same business state:
+
+| Customer | State | Division stored | Ahmedabad I admin (div 1) | Ahmedabad II admin (div 2) |
+|---|---|---|---|---|
+| NAYAFP3040500001 | 11 | 1, Ahmedabad I, real | visible | **visible** |
+| NAYAFP3043400009 | 11 | 2, Ahmedabad II, real | **visible** | visible |
+
+Each admin sees the other division's OD customer, so the division is not consulted for OD
+whatever it holds.
+
+That drops this ticket to P3. What remains is a consistency defect rather than a functional
+one: one enrolment path follows the storage convention and the other does not, so anything
+that later keys off `IsPlaceholder` — a report, a migration, a future scoping rule — will
+treat self-enrolled OD customers differently from the rest without anyone intending it. The
+pin-code derivation behind it is also still live on that path, which is the half of the change
+request that was about the pin code.
+
+**And the good news this rules out:** the 135 OD customers created before the change, every one
+on a real division, need no backfill. They already behave as the change intends.
+
+`tools/probe-od-legacy-division-visibility.spec.ts` is the measurement, and is worth keeping as
+a regression check — it would catch a later fix that made visibility depend on the placeholder
+after all, which would strand those 135 silently.
 
 ### Evidence
 `tools/probe-self-enrolment-division.spec.ts` reads the hidden field as the pin code changes,

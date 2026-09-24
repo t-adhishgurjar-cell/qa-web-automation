@@ -124,6 +124,12 @@ The self-enrolment form shows no division control, so it looks compliant, but a 
 `#odDivision` still fills from the pin code: 380001 gives "Ahmedabad II", 201304 gives
 "Noida". The live customer NAYAFP3023400262 carries real division 34 as a result.
 
+The real division does **not** restrict who can see that customer: the dummy divisions are
+storage only, and visibility decides from the customer's type. Measured on two pre-change OD
+customers in GJ_I on real divisions 1 and 2 — each is visible to both the Ahmedabad I and
+Ahmedabad II division admins. So FP-OD-7 is a consistency defect, not a functional one, and
+the 135 OD customers predating the change need no backfill.
+
 Everything below this line was measured on the Add Customer path.
 
 ### Does the fix work on Add Customer? — mostly yes
