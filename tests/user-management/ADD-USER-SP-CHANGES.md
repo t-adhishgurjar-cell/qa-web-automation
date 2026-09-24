@@ -158,3 +158,86 @@ the matrix has an "OD only" column that expects success.
 | Inactive rows count toward the cap | 16 parent codes and 8 branch codes already at or over it |
 
 `tools/probe-add-user-sp-claims.spec.ts` re-runs all four.
+
+---
+
+# Impact on other functionality
+
+`usp_AddUser` is behind every path that creates a user, so these changes reach further than
+the Add User screen. Measured 24 September 2026.
+
+## First, what is *not* affected
+
+**Customer onboarding still creates its own administrators.** This was the worst case and
+it is disproved. The CustomerMaster arm refuses any new user whose mobile belongs to a
+non-OD customer at status 101 or 104 — and a customer's administrator is a user on the
+customer's own mobile. Had the admin been created after the customer row reached 101, the
+check would have matched the customer's own record and refused its own admin, for every
+type except OD.
+
+It does not happen. Since the check landed on 3 September: **52 Fleet, 5 Non Fleet and 4 OD
+customer administrators created**, the most recent on 21–22 September. And no non-OD
+customer approved since then is sitting without a user on its mobile — the shape a blocked
+admin creation would leave. So the admin is created before the customer row reaches a
+blocking status, or by a path that does not consult this check.
+
+Worth keeping as a regression check rather than a conclusion: it depends on ordering, and
+ordering is the kind of thing a later change moves without noticing.
+
+## Then, what is
+
+### 1. Add User, for any mobile belonging to a non-OD customer
+The missing NFP-1694 guard means **every** user type is refused there, not the eight the
+ticket names. A Fleet customer's own contact number cannot be given a Nayara, RO or
+"other" role. This is the 20-cell disagreement in `src/data/usertype-matrix.data.ts`, and
+its practical shape is that a real person who is already a Fleet customer cannot also be
+made a territory admin, a DSA or an RO user on the same number.
+
+OD is excluded (`CustomerTypeCode <> 1004`), so an OD customer's mobile is still free. One
+customer type behaves differently from the other three here, which is worth knowing when
+reading any user-creation failure.
+
+### 2. Customer user management, for customers already at the cap
+The 22 September change caps `CUSTOMER_PARENT_USER` and `CUSTOMER_CHILD_USER` per
+`UserCode`, at 2 in QA, counting inactive rows. Already at or over it: **16 parent codes
+and 8 branch codes**. For those customers, adding another user of that type now fails with
+"Maximum of 2 … allowed" where it previously succeeded — and deactivating a user does not
+free a slot, because the count filters neither `StatusFlag` nor `IsActive`.
+
+Anything that adds customer users — the Manage Customer Users screen, onboarding a branch,
+and any test that assumes it can create one — inherits this.
+
+### 3. Officers created through the UI have no scope at all
+Neither `UserLocationMapping` insert runs, and `@SelectedLocations` is accepted and
+discarded. So a user created through this procedure has no region, state or division,
+whatever its type and whatever the caller sent.
+
+Consequences: every location-scoped screen shows such a user nothing; Add User cannot
+produce a working officer; and a `TERRITORY_ADMIN` made this way would be a TSM with no
+division, which is the one thing a TSM needs. This is why the officers this suite relies on
+come from the Office API, which writes the mapping itself — and it is the reason a TSM
+cannot simply be minted for a given division.
+
+### 4. Mobile numbers become permanently unusable
+The Users arm of the conflict check has no `IsActive` filter, so a **disabled** user of a
+blocking type still blocks its mobile. Measured: **44 mobiles are held only by disabled
+blocking-type users** and cannot be reused for any new user without a database change.
+
+That lands on staff turnover in production and on test-data hygiene here — it is why this
+suite mints fresh mobiles rather than recycling them.
+
+### 5. One password per mobile, shared across every user on it
+`IsParentUser` is 0 whenever the mobile already exists, and the password is then inherited
+from the row with `IsParentUser = 1`. Measured: the ten busiest mobiles carry **38 to 50
+user rows each, every one with a single distinct password hash**.
+
+So a password change on any of them changes the credential for all, and deactivating one
+row does not revoke the shared credential. It also explains why one Forgot Password reset
+made a TSM usable across all 29 of its rows. Security-relevant rather than functional, and
+worth a separate look.
+
+### 6. This suite's own matrix
+The `code` column stands, now confirmed against the source. The `CUSTOMER_PARENT_USER` and
+`CUSTOMER_CHILD_USER` rows need re-measuring against the caps — a refusal there may now be
+the cap rather than the conflict check, and the two are indistinguishable from the outside
+unless the message is read.
