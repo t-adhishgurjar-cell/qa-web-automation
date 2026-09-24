@@ -10,12 +10,28 @@ import { customerTypeSql, existingUserSql, mixedCustomerSql } from '../helpers/f
  * the workbook does not have: each cell carries *two* verdicts.
  *
  *   spec — what the workbook says should happen
- *   code — what usp_AddUser actually does
+ *   code — what the Add User path was measured doing
  *
  * They disagree on 20 cells, and writing only one of them down would mean
  * quietly picking a side. Keeping both lets a test assert the spec, report the
  * disagreement, and stop being a known failure the moment the code is fixed —
  * without anyone having to remember why it was red.
+ *
+ * ── "code" is inferred, not read ──────────────────────────────────────────
+ * The second verdict is behavioural. The read-only login this suite uses cannot see
+ * procedure bodies — HAS_PERMS_BY_NAME('dbo.usp_AddUser','OBJECT','VIEW DEFINITION')
+ * returns 0 and OBJECT_DEFINITION returns NULL — so every statement here about what
+ * usp_AddUser does internally is a conclusion drawn from what the flow did with given
+ * inputs, not a reading of its source. It fits every cell measured, which is the most
+ * that can be claimed for it.
+ *
+ * ── And it may be stale ───────────────────────────────────────────────────
+ * usp_AddUser was modified 2026-09-22 16:08:40, three minutes before the fifteen
+ * "OD Default" divisions were created at 16:11:52 — so it was redeployed as part of the
+ * OD division change. These verdicts were measured before that. Until the matrix is
+ * re-run, treat the "code" column as describing the build that preceded 22 September.
+ * tools/probe-add-user-sp.spec.ts reports the procedure's modify date for exactly this
+ * check.
  *
  * ── Fixtures ──────────────────────────────────────────────────────────────
  * Seven of the nine columns are preconditions on data that must already exist:
@@ -308,11 +324,13 @@ export function specVerdict(row: MatrixRow, column: MatrixColumn): Verdict {
 }
 
 /**
- * What usp_AddUser really does.
+ * What the Add User path was measured doing.
  *
- * Identical to the spec but for one thing: its CustomerMaster check has no
- * user-type guard, so it refuses *every* type on a non-OD customer's mobile —
- * not only Nayara staff. That single missing condition is the whole disagreement.
+ * Identical to the spec but for one thing: on a non-OD customer's mobile it refuses
+ * *every* user type, not only Nayara staff. The simplest explanation that fits every
+ * measured cell is a CustomerMaster check with no user-type guard, and that is how it is
+ * described elsewhere here — but it is an inference. This login cannot read the
+ * procedure's body, and the procedure changed on 22 September 2026; see the header.
  */
 export function codeVerdict(_row: MatrixRow, column: MatrixColumn): Verdict {
   return column.check === 'none' ? 'allowed' : 'blocked';
