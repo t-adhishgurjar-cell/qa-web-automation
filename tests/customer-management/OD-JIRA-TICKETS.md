@@ -350,6 +350,81 @@ network level across several states, which is a piece of work in its own right.
 
 ---
 
+## FP-OD-7 — P1 — The change is not applied to OD self-enrolment
+
+**Type:** Bug **Priority:** P1 **Component:** Customer Management / OD self-enrolment
+
+### Summary
+The requirement covers both enrolment paths. Only Add Customer implements it.
+
+The public self-enrolment form at `/Home/PersonalSelfEnrolment` shows no division control —
+so it looks compliant — but it carries a **hidden `#odDivision`**, and that field is still
+populated from the pin code. The customer is therefore given a real division decided by its
+address, which is both halves of what the change removes: the division, and the pin-code
+restriction based on it.
+
+### Steps to reproduce
+1. Open `/Home/PersonalSelfEnrolment`. No sign-in is needed; the form is public.
+2. Enter a pin code in the **Pin Code** field and tab out.
+3. Read the hidden input `#odDivision`.
+
+### Expected
+Either empty, or the `OD Default - <state>` dummy for the resolved state — the same answer
+Add Customer gives.
+
+### Actual
+A real division, derived from the pin code:
+
+| Pin code | Resolves to | `#odDivision` becomes |
+|---|---|---|
+| 380001 | AHMEDABAD, GUJARAT | **Ahmedabad II** — real division 2 |
+| 201304 | GAUTAM BUDDHA NAGAR, UTTAR PRADESH | **Noida** — real division 34 |
+
+And it reaches the database. The one OD customer raised this way is live:
+**NAYAFP3023400262**, business state 7, `CustomerDivisionId` **34, Noida,
+`IsPlaceholder = 0`** — raised 23 September at 12:32 by `7000000187`, a user whose own type
+is OD with no location mapping, which is what a customer enrolling itself looks like.
+
+Two minutes later, an Add Customer OD application in the same business state took dummy 57.
+Same state, same build, minutes apart, two different answers.
+
+### The split, counted
+Every OD application raised since the dummy assignment went live at 11:08 on 23 September:
+
+| Path | Applications | Division stored |
+|---|---|---|
+| via Add Customer | **15 of 15** | dummy `OD Default - <state>` |
+| self-onboarded | **1 of 1** | **real division** |
+
+### Why it matters
+A real division means the division hierarchy still applies to that customer. Pin code 380001
+yields Ahmedabad II — division 2 — so the Ahmedabad II division admin would see such a
+customer and the Ahmedabad I admin would not. That is exactly the restriction the change
+removes for Add Customer OD, still in force for self-enrolled OD.
+
+It is also the more exposed path of the two: the form is public and unauthenticated, and OD
+is Owner Driver — the segment most likely to enrol itself rather than be entered by a DSA.
+
+### One thing to confirm before fixing
+Whether the fix belongs at storage or at visibility. If the intent is that OD is never
+filtered by division regardless of what division it carries, then this record's real division
+is untidy but harmless, and the work is on the visibility side. If the intent is that an OD
+customer carries the dummy, the self-enrolment path needs the same assignment Add Customer
+got. The two produce the same result for Add Customer OD today, so the current behaviour does
+not distinguish them — and FP-OD-1 is in the same area.
+
+### Evidence
+`tools/probe-self-enrolment-division.spec.ts` reads the hidden field as the pin code changes,
+without submitting anything. `tools/probe-od-self-vs-addcustomer.spec.ts` counts the split by
+maker type.
+
+### Note on the third pin code
+`700001` resolved to nothing at all — blank state, city and division — so it is not in the pin
+code data this form consults. Unrelated to this ticket, but it means a Kolkata self-enrolment
+cannot complete the address step with that pin code.
+
+---
+
 ## Still to do
 
 - **Rewrite OD-20** to assert `CustomerDivisionId = 0` — the real acceptance criterion

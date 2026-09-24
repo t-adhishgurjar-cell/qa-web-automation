@@ -110,7 +110,23 @@ That is the real risk, and it needs an approved post-fix OD customer to test.
 
 ## Results, 22 September 2026
 
-### Does the fix work? — mostly yes
+### Which enrolment path? — only one of the two
+
+The requirement covers OD raised through Add Customer **and** OD self-enrolment. Measured
+23 September, after the dummy assignment went live at 11:08:
+
+| Path | Applications | Division stored | Verdict |
+|---|---|---|---|
+| Add Customer | 15 of 15 | dummy `OD Default - <state>` | **applied** |
+| Self-enrolment (`/Home/PersonalSelfEnrolment`) | 1 of 1 | real division, derived from the pin code | **not applied** — FP-OD-7 |
+
+The self-enrolment form shows no division control, so it looks compliant, but a hidden
+`#odDivision` still fills from the pin code: 380001 gives "Ahmedabad II", 201304 gives
+"Noida". The live customer NAYAFP3023400262 carries real division 34 as a result.
+
+Everything below this line was measured on the Add Customer path.
+
+### Does the fix work on Add Customer? — mostly yes
 
 | What the change asked for | Verdict |
 |---|---|
