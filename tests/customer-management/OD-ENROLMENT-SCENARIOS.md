@@ -189,11 +189,15 @@ control, so nothing rests on how a different customer type is treated.
 | Ahmedabad State Admin | region 4, state 11 | visible | **visible** |
 | Ahmedabad I Division Admin | region 4, state 11, division 1 | visible | **visible** |
 | Ahmedabad II Division Admin | region 4, state 11, division 2 | visible | **visible** |
+| Ahmedabad I Territory Admin (TSM) | region 4, state 11, division 1 | visible | **visible** |
+| Ahmedabad II Territory Admin (TSM) | region 4, state 11, division 2 | visible | **visible** |
 | Kolkata Region Admin | region 1, East | visible | **visible** |
 | Kolkata State Admin | region 1, state 3 | visible | **visible** |
 | Kolkata Division Admin | region 1, state 3, division 26 | visible | **visible** |
 
-Seven officers, three scope levels, two regions, no variation at all.
+**Nine officers, four levels, two regions, no variation at all.** Re-run 24 September against
+two freshly raised applications — 1000515018 in GJ_I on dummy 61, and 1000515019 in WB_NE on
+dummy 53 — so this is not an artefact of older records.
 
 The two Ahmedabad division admins are the tightest control here. They differ only in
 division — 1 and 2, same state GJ_I, same West zone — and the GJ_I application carries
@@ -204,7 +208,18 @@ correctly see their own region's OD application despite it carrying the state's 
 division rather than theirs — the division level has stopped restricting, as asked. What
 has also stopped is region and state.
 
-Reproduction: `od-hierarchy-two-regions.spec.ts`, 6 of 6 failing symmetrically.
+The two territory admins matter more than their row suggests. TERRITORY_ADMIN carries
+`HierarchyType = 'Division'`, so a TSM is division-scoped — and a TSM is also the reviewer. So
+this is the level where wrong scope stops being a reporting curiosity and becomes work landing
+in the wrong queue: it is the same defect that let the Gurgaon TSM review a Gujarat and a
+Bengal application while creating the OD login in the first place.
+
+Reproduction: `od-hierarchy-two-regions.spec.ts`, 9 of 9 failing symmetrically, 2 fixtures
+passing.
+
+One instability to note: on one run the Ahmedabad II division admin failed at sign-in rather
+than on the assertion (`expect(page).not.toHaveURL`), and reported correctly on the re-run. The
+suite has had intermittent login failures all week; it is not a finding about scope.
 
 ### The hierarchy question, answered
 

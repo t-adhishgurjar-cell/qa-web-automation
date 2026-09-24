@@ -44,8 +44,8 @@ exception is FP-OD-3, which does reach the Fleet path.
 **This is the one functional defect of the set.** With the dummy divisions confirmed as storage
 only, visibility special-cases OD by customer type — and that exemption drops region and state
 along with the division. The fix belongs there, in the visibility rule, not in the data.
-**Reproduction:** `tests/customer-management/od-hierarchy-two-regions.spec.ts` — 6 of 6
-officers fail, symmetrically
+**Reproduction:** `tests/customer-management/od-hierarchy-two-regions.spec.ts` — 9 of 9
+officers fail, symmetrically, against applications raised fresh by the same run
 
 ### Summary
 On View Onboarding (`/Customer/CustomerOnboardingStatus`), OD applications appear
@@ -89,8 +89,11 @@ visibility was judged:
 
 | Reference | Place | Business state | Region | Division stored |
 |---|---|---|---|---|
-| 1000514990 | Ahmedabad | 11 (GJ_I) | 4 — West | 61, `OD Default - GJ_I` |
-| 1000514991 | Kolkata | 3 (WB_NE) | 1 — East | 53, `OD Default - WB_NE` |
+| 1000515018 | Ahmedabad | 11 (GJ_I) | 4 — West | 61, `OD Default - GJ_I` |
+| 1000515019 | Kolkata | 3 (WB_NE) | 1 — East | 53, `OD Default - WB_NE` |
+
+Re-measured 24 September on applications raised by the same run, so the result does not depend
+on any record created earlier in this testing.
 
 Each officer should see the application from their own region and not the other's. The
 second half is the control, and it needs no third customer type: the two applications
@@ -102,11 +105,13 @@ are each other's control, and the same officer is measured on both in the same r
 | Ahmedabad State Admin `9073068501` | region 4, state 11 | visible | **visible** — should not be |
 | Ahmedabad I Division Admin `9073139002` | region 4, state 11, division 1 | visible | **visible** — should not be |
 | Ahmedabad II Division Admin `9063600900` | region 4, state 11, division 2 | visible | **visible** — should not be |
+| Ahmedabad I Territory Admin `9111181007` | region 4, state 11, division 1 | visible | **visible** — should not be |
+| Ahmedabad II Territory Admin `7486836430` | region 4, state 11, division 2 | visible | **visible** — should not be |
 | Kolkata Region Admin `9073209903` | region 1 (East) | visible | **visible** — should not be |
 | Kolkata State Admin `9073275904` | region 1, state 3 | visible | **visible** — should not be |
 | Kolkata Division Admin `9073340105` | region 1, state 3, division 26 | visible | **visible** — should not be |
 
-**Every officer sees both.** Seven officers, three scope levels, two regions, and not one
+**Every officer sees both.** Nine officers, four levels, two regions, and not one
 variation between them — which is what "no location filter is applied to OD" looks like.
 Note also that the division admins do correctly see their own region's OD application
 even though it carries the state's dummy division rather than their own: the division

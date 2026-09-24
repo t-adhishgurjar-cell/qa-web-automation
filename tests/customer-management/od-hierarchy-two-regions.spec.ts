@@ -82,6 +82,13 @@ const OFFICERS = [
   // the change working. Anything that distinguishes them would mean the division is
   // still being matched against OD.
   { level: 'Ahmedabad II Division Admin', username: '9063600900', scope: 'region 4, state 11, division 2', sees: 'ahmedabad' },
+  // The two GJ_I territory admins. TERRITORY_ADMIN carries HierarchyType 'Division', so they
+  // are division-scoped like the division admins above — and like them they must see a GJ_I OD
+  // application whose dummy division is 61, neither of theirs. They also review, which makes
+  // them the level where a wrongly-scoped OD application would actually block work.
+  { level: 'Ahmedabad I Territory Admin (TSM)', username: '9111181007', scope: 'region 4, state 11, division 1', sees: 'ahmedabad' },
+  { level: 'Ahmedabad II Territory Admin (TSM)', username: '7486836430', scope: 'region 4, state 11, division 2', sees: 'ahmedabad' },
+
   { level: 'Kolkata Region Admin', username: '9073209903', scope: 'region 1 (East)', sees: 'kolkata' },
   { level: 'Kolkata State Admin', username: '9073275904', scope: 'region 1, state 3 (WB_NE)', sees: 'kolkata' },
   { level: 'Kolkata Division Admin', username: '9073340105', scope: 'region 1, state 3, division 26', sees: 'kolkata' },
