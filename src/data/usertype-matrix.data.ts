@@ -17,21 +17,67 @@ import { customerTypeSql, existingUserSql, mixedCustomerSql } from '../helpers/f
  * disagreement, and stop being a known failure the moment the code is fixed —
  * without anyone having to remember why it was red.
  *
- * ── "code" is inferred, not read ──────────────────────────────────────────
- * The second verdict is behavioural. The read-only login this suite uses cannot see
- * procedure bodies — HAS_PERMS_BY_NAME('dbo.usp_AddUser','OBJECT','VIEW DEFINITION')
- * returns 0 and OBJECT_DEFINITION returns NULL — so every statement here about what
- * usp_AddUser does internally is a conclusion drawn from what the flow did with given
- * inputs, not a reading of its source. It fits every cell measured, which is the most
- * that can be claimed for it.
+ * ── "code" is confirmed against the source ────────────────────────────────
+ * It was inferred behaviourally first — this suite's read-only login cannot see procedure
+ * bodies (HAS_PERMS_BY_NAME(...,'VIEW DEFINITION') = 0) — and has since been checked
+ * against usp_AddUser's actual text, supplied 24 September 2026. The inference was right,
+ * and the source says why.
  *
- * ── And it may be stale ───────────────────────────────────────────────────
- * usp_AddUser was modified 2026-09-22 16:08:40, three minutes before the fifteen
- * "OD Default" divisions were created at 16:11:52 — so it was redeployed as part of the
- * OD division change. These verdicts were measured before that. Until the matrix is
- * re-run, treat the "code" column as describing the build that preceded 22 September.
- * tools/probe-add-user-sp.spec.ts reports the procedure's modify date for exactly this
- * check.
+ * The procedure declares a @TypeCodeRules table as its single source of truth:
+ *
+ *   IsSystemType = 1       FP_ADMIN, HO_ADMIN, HO, REGION_ADMIN, STATE_ADMIN,
+ *                          DIVISION_ADMIN, TERRITORY_ADMIN, OTHER_NAYARA
+ *   BlocksMobileReuse = 1  all of the above, plus OTHER_NON, RO, OTHER_RO
+ *
+ * It then computes @IsCurrentTypeSystemType from that table — and uses it for exactly one
+ * thing: setting IsSystemUser on the inserted row. The mobile-conflict check that follows
+ * is NOT guarded by it. So the CustomerMaster arm of that check refuses every user type on
+ * a non-OD customer's mobile, which is the whole of the 20-cell disagreement.
+ *
+ * That matters because it contradicts the procedure's own header, which describes ticket
+ * NFP-1694 as: "Block Nayara/system-type user creation if mobile already exists in
+ * CustomerMaster with non-OD customer type". Nayara/system-type was the intent; the
+ * implementation has no such condition. The spec column and the code column disagree
+ * because the code is broader than what its author wrote down — not because the workbook
+ * is wrong.
+ *
+ * ── Two details of that check, both confirmed against the data ────────────
+ * CustomerMaster arm: cm.Status IN (101, 104). 104 is Inactive, so a *deactivated* non-OD
+ * customer still blocks a new user on its mobile — which is where this repo's
+ * BLOCKING_CUSTOMER_STATUSES comes from. Measured: NAYAFP2023400019 and others sit at 104.
+ *
+ * Users arm: joins dbo.Users with no IsActive or StatusFlag filter, so a *disabled* user of
+ * a blocking type still blocks mobile reuse. Measured: user 7 (STATE_ADMIN), 207
+ * (HO_ADMIN), 293 (FP_ADMIN) are all IsActive = 0 and would still block.
+ *
+ * ── What changed on 22 September, and what it does not affect ─────────────
+ * An earlier note here guessed that usp_AddUser's 22/09 16:08 modification was part of the
+ * OD division change, three minutes before the "OD Default" divisions appeared at 16:11.
+ * That was wrong — same deployment window, different ticket. Its header says the change is
+ * hard caps for hierarchy users, read from dbo.ConfigurationMaster:
+ *
+ *   CUSTOMER_PARENT_USER  MaxCustomerParentUsersAllowed  per parent UserCode
+ *   CUSTOMER_CHILD_USER   MaxCustomerBranchUsersAllowed  per branch UserCode
+ *
+ * Missing or unparseable config fails the create outright, for every caller including FP.
+ * Both keys are configured in QA at 2. Measured consequence: 16 customer codes already hold
+ * 2 or more parent users and 8 hold 2 or more branch users, so creating either type against
+ * those customers now fails with "Maximum of 2 ... allowed" where it previously succeeded.
+ *
+ * So the staleness risk to this matrix is narrow: the CUSTOMER_PARENT_USER and
+ * CUSTOMER_CHILD_USER rows, not the whole table.
+ *
+ * ── One thing the procedure does not do ───────────────────────────────────
+ * It never writes dbo.UserLocationMapping. Both insert blocks for it are commented out in
+ * the source. So a user created through this path has no region, state or division at all,
+ * whatever its type — which is why an officer needs the Office API, and why creating a
+ * TERRITORY_ADMIN here would produce a TSM with no division and no use for a
+ * division-scoped queue.
+ *
+ * Related: IsParentUser is 0 whenever the mobile already exists, and the password is then
+ * inherited from the row with IsParentUser = 1. That is why a single mobile can carry
+ * dozens of user rows sharing one password, and why one Forgot Password reset makes all of
+ * them usable at once.
  *
  * ── Fixtures ──────────────────────────────────────────────────────────────
  * Seven of the nine columns are preconditions on data that must already exist:
@@ -324,13 +370,13 @@ export function specVerdict(row: MatrixRow, column: MatrixColumn): Verdict {
 }
 
 /**
- * What the Add User path was measured doing.
+ * What usp_AddUser does, confirmed against its source.
  *
- * Identical to the spec but for one thing: on a non-OD customer's mobile it refuses
- * *every* user type, not only Nayara staff. The simplest explanation that fits every
- * measured cell is a CustomerMaster check with no user-type guard, and that is how it is
- * described elsewhere here — but it is an inference. This login cannot read the
- * procedure's body, and the procedure changed on 22 September 2026; see the header.
+ * Identical to the spec but for one thing: on a non-OD customer's mobile it refuses *every*
+ * user type, not only Nayara staff. The procedure computes @IsCurrentTypeSystemType and
+ * uses it only to set IsSystemUser; the mobile-conflict check is not guarded by it. Its own
+ * header says the check was meant for Nayara/system types alone (NFP-1694), so this is the
+ * code being broader than its stated intent. See the file header.
  */
 export function codeVerdict(_row: MatrixRow, column: MatrixColumn): Verdict {
   return column.check === 'none' ? 'allowed' : 'blocked';
