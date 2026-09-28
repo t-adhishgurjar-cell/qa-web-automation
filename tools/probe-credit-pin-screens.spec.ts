@@ -196,9 +196,15 @@ test.describe('Tools — probes @tools', () => {
           const hidden: string[] = [];
           for (const el of Array.from(document.querySelectorAll('input, select, button, a.btn'))) {
             const node = el as HTMLInputElement;
+            // This screen holds live credit PINs in password inputs. Their
+            // values are what a branch transacts on, and the probe's report is
+            // a file on disk, so report the shape and never the secret.
+            const raw = node.type === 'password'
+              ? `(${node.value.length}-char secret)`
+              : (node.textContent || node.value || '');
             const line = `${node.tagName.toLowerCase()}${node.type ? `[${node.type}]` : ''} ` +
               `id="${node.id || ''}" name="${node.getAttribute('name') || ''}" ` +
-              `"${(node.textContent || node.value || '').trim().replace(/\s+/g, ' ').slice(0, 40)}"`;
+              `"${raw.trim().replace(/\s+/g, ' ').slice(0, 40)}"`;
             (visible(el) ? controls : hidden).push(node.id ? line : line + ' (no id)');
           }
 

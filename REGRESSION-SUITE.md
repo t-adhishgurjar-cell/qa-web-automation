@@ -1,4 +1,9 @@
-# FleetPlus Web — Regression Suite
+# FleetPlus Web — Regression Suite (strategy)
+
+> **The executable test cases are in [`regression/`](regression/README.md)** — 391 cases across
+> 11 module files, written to be run by hand and then automated. This file is the strategy behind
+> them: coverage against the application's real surface, the tier model, and the release gate.
+
 
 **Audience:** the QA engineers who will run and extend this, and the release manager who
 decides on it. It assumes familiarity with FleetPlus but not with this repository.

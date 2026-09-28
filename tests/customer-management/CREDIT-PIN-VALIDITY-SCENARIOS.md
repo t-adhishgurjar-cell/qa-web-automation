@@ -26,13 +26,79 @@ All three hang off `ParentMenuId` 2, the Customer menu. Two things follow that
 - **Manage Products and Transactions is served by the Vehicle controller**
   despite sitting under the Customer menu.
 
-Selectors and the column set are still unknown — the probe's browser half has
-not completed a run. Do not write assertions against this screen before that
-output exists: this application keeps controls in the DOM while hiding them.
+---
+
+## What the screen actually renders
+
+Measured 28 September 2026 against `webqa.fleetforc.com`, as both roles on
+`9200000000`. Re-read with:
 
 ```
 TOOLS=true ENV=qa npx playwright test --project=tools --grep "probe credit pin"
 ```
+
+The grid is `#tblCustomerPin`, seven columns:
+
+```
+SNO. | Branch Name | Branch UID | Credit PIN | Refresh PIN | Expiry of PIN | Action
+```
+
+Page-level controls, all with stable ids:
+
+| Control | Selector | Customer Admin | Branch Admin |
+|---|---|---|---|
+| Branch UID filter | `#txtBranchUid` | visible | **in the DOM, hidden** |
+| Search | `#btnSearch` | visible | **in the DOM, hidden** |
+| Reset | `#btnReset` | visible | **in the DOM, hidden** |
+| Rows per page | `#dt-length-0` | visible | visible |
+| Quick filter | `#custSearchFilter` | visible | visible |
+| Export Excel / PDF | `#btnExportExcel`, `#btnExportPdf` | visible | visible |
+
+The filter trio being present-but-hidden for a Branch Admin is the trap this
+application is known for: `toBeAttached()` would pass for a control the role
+cannot use. Assert visibility, not presence.
+
+**Row controls carry no ids at all.** Each row holds, in order: an
+`input[type=password]` with the PIN, an unlabelled reveal button, a
+`Refresh PIN` button, an `input[type=date]`, an `input[type=time]`, an `Update`
+button, and an `input[type=hidden]` holding the combined value as
+`2026-09-16T14:31:00`. They must be reached by row, scoped from the Branch UID
+cell — never by index across the page.
+
+### The workbook's expiry dropdown does not exist
+
+TC_003 states the expiry is a dropdown offering
+`Select Expiry / 24 Hrs / 15 Days / Calendar Month`. **There is no such
+control.** The only `select` on the page is `#dt-length-0`, DataTables' rows-per-page.
+Expiry is set as an explicit date and time per row.
+
+That invalidates TC_003 as written and changes TC_004 to TC_007 from "choose a
+preset" to "type a date and a time". The requirement behind them still holds and
+is still worth testing — 24 hours out, 48 hours out, 15 days out, end of month —
+but as computed dates entered into the two inputs. TC_008, updating with nothing
+selected, becomes "clear the date and press Update".
+
+Either the screen was rebuilt after the workbook was written or the workbook
+describes a different build. Worth confirming with whoever owns the sheet before
+the rewritten cases are signed off.
+
+### Scope, measured
+
+As **Customer Admin**: ten rows on page one with pagination showing at least two
+pages, so more than ten branches exist — TC_014's precondition is met, and
+TC_009's "All 3 branches shown" is wrong for this account.
+
+As **Branch Admin**: exactly one row, its own branch `NAYAFP2023400247`
+("testing"). TC_012 holds as written.
+
+### Manage Products & Transactions is not reachable
+
+`/Vehicle/EnableDisableProdTrans` returns `HTTP 200` with the title
+**"Unauthorized Access"** for both the Customer Admin and the Branch Admin —
+note it is a 200, so a test asserting on status code would pass while the user
+sees a refusal. The workbook writes all 29 of its cases for a Customer Admin, so
+either a different role is needed or the entitlement changed. Blocked until an
+account that can open it is identified.
 
 ---
 
@@ -53,33 +119,28 @@ must accept a login per role — which is the behaviour TC_009 and TC_012 test.
 
 ---
 
-## The expiry selector — the core of the screen
+## The expiry cases, rewritten against the real control
 
-Six of the 15 cases are the `Select Expiry` dropdown and its `Update` button.
-The workbook states the option list exactly (TC_003):
+Six of the 15 cases are the expiry and its `Update` button. Restated as the date
+and time inputs the screen actually has:
 
-```
-Select Expiry | 24 Hrs | 48 Hrs | 15 Days | Calendar Month
-```
-
-| TC | Selection | Expected expiry |
+| TC | Was | Becomes |
 |---|---|---|
-| TC_004 | 24 Hrs | 24 hours from update time |
-| TC_005 | 48 Hrs | 48 hours from update time |
-| TC_006 | 15 Days | 15 days from update date |
-| TC_007 | Calendar Month | end of the current calendar month |
-| TC_008 | nothing selected | refused, with a message |
+| TC_003 | dropdown offers four presets | no dropdown exists; assert the date and time inputs are offered per row |
+| TC_004 | select 24 Hrs | enter now + 24 hours, Update, expect that value stored |
+| TC_005 | select 48 Hrs | enter now + 48 hours |
+| TC_006 | select 15 Days | enter today + 15 days |
+| TC_007 | select Calendar Month | enter the last day of the current month |
+| TC_008 | Update with nothing selected | clear the date, Update, expect a refusal |
 
-These are the strongest candidates to automate first: one screen, one control,
-five outcomes, and each expected result is a date the test can compute rather
-than a string to eyeball. Worth asserting in the database as well as the grid —
-the grid shows a formatted date, and whether the stored expiry matches is the
-part a customer's credit actually depends on.
+Each expected value is computable, which is what makes these worth automating
+first. Assert both the grid and the database: the grid shows a formatted date,
+and the stored expiry is what a branch's credit actually depends on.
 
-Note TC_004's second clause, "Update button becomes active": the button is
-apparently disabled until an expiry is chosen, which is also what makes TC_008
-worth checking — a disabled button and a validation message are different
-implementations of the same requirement, and the workbook does not say which.
+The hidden `input` alongside each pair holds the combined
+`YYYY-MM-DDTHH:mm:00`, so it is the honest thing to assert against — it is what
+the form posts, and it avoids depending on the display format of two separate
+inputs.
 
 ---
 
@@ -87,29 +148,34 @@ implementations of the same requirement, and the workbook does not say which.
 
 | TC | Scenario | Automate? | Note |
 |---|---|---|---|
-| TC_001 | Branch Admin sees a PIN and expiry | Manual | Expected expiry is hard-coded as `20/05/2026 06:00 PM`; a fixed date will not hold, so assert the shape, not that value |
-| TC_009 | Customer Admin sees all branches | Manual | Workbook says "All 3 branches shown" and then lists none. `PARENT_ADMIN` owns `NAYAFP1023400246`, which holds **seven** live branches per `add-branch-parent-admin.spec.ts` — so the count must be read from the database, not taken from the sheet |
-| TC_012 | Branch Admin restricted to own branch | Manual | The scope assertion worth having; pairs with TC_009 |
-| TC_010 | Search by Branch UID | Automate | |
-| TC_011 | Reset clears the filter | Automate | |
-| TC_013 | Branch with no PIN shows empty PIN and `-` expiry | Manual | Needs a branch that has never had a PIN; may not exist and may not be creatable read-only |
-| TC_014 | Pagination | Automate | Needs more than 10 branches; the seven above are not enough |
-| TC_015 | Export CSV/PDF | Automate | `customer-bank.spec.ts` has no export precedent; download handling is new here |
+| TC_001 | Branch Admin sees a PIN and expiry | Manual | Expected expiry is hard-coded as `20/05/2026 06:00 PM`; assert the shape, not that value |
+| TC_009 | Customer Admin sees all branches | Manual | "All 3 branches shown" is wrong — measured at more than ten, across two pages. Read the count from the database |
+| TC_012 | Branch Admin restricted to own branch | Manual | Measured true: exactly one row, `NAYAFP2023400247` |
+| TC_010 | Search by Branch UID | Automate | Customer Admin only; the filter is hidden for a Branch Admin |
+| TC_011 | Reset clears the filter | Automate | Same |
+| TC_013 | Branch with no PIN shows empty PIN and `-` expiry | Manual | Every measured row already has a PIN; needs a branch that has never had one |
+| TC_014 | Pagination | Automate | Precondition met — more than ten branches exist |
+| TC_015 | Export CSV/PDF | Automate | No export precedent in this suite; download handling is new here |
+
+Worth adding, not in the workbook: **a Branch Admin must not be offered the
+Branch UID filter.** The controls exist in the DOM and are merely hidden, which
+is exactly the kind of scope boundary that regresses silently.
 
 ---
 
 ## Order of work
 
-1. Run the probe. Confirm the route, the grid id, the column set, and whether
-   `Update` starts disabled.
-2. `src/pages/customer-management/credit-pin-validity.page.ts` from that output.
-3. TC_003 to TC_008 — the expiry matrix, as `PARENT_ADMIN`.
-4. TC_010 and TC_011 — search and reset.
-5. TC_009 and TC_012 — the two-role scope pair, branch count read from the
-   database.
+1. ~~Run the probe.~~ Done — see above.
+2. `src/pages/customer-management/credit-pin-validity.page.ts`, rows scoped by
+   Branch UID rather than by index.
+3. The read-only cases first, because they change nothing: the column set, the
+   two-role scope pair (TC_009, TC_012), and the hidden-filter boundary.
+4. TC_010 and TC_011 — search and reset, as `PARENT_ADMIN`.
+5. TC_004 to TC_008 — the expiry matrix. **These write.** See below.
 
-TC_013, TC_014 and TC_015 are held back: two need test data that may not exist,
-and the third needs download handling this suite has not done before.
+TC_013 and TC_015 stay held back: one needs a branch with no PIN, which no
+measured row is, and the other needs download handling this suite has not done
+before. TC_014 is now unblocked.
 
 ---
 
