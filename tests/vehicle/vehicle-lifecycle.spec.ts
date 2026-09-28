@@ -148,8 +148,9 @@ async function waitForLive(want: number, timeout = 30_000): Promise<number | nul
 /**
  * Opens a screen and reports what it offers, plus whether it can find the subject.
  *
- * Refusals on this application are served on the same URL with an "Unauthorized Access" body rather
- * than a redirect or a 403, so the body is what decides — not the status code.
+ * Refusals are served on the same URL with an "Unauthorized Access" page rather than a redirect or a
+ * 403, so the status code never shows them — but it does show a server error, which is a different
+ * outcome again and worth separating from both.
  */
 async function checkScreen(
   page: Page,
@@ -158,6 +159,11 @@ async function checkScreen(
 ): Promise<void> {
   const response = await page.goto(screen.route, { waitUntil: 'domcontentloaded' }).catch(() => null);
   await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
+
+  if ((response?.status() ?? 0) >= 500) {
+    record(id, screen.label, 'fail', `http ${response?.status()} — a server error, not a refusal`);
+    return;
+  }
 
   // Refusal is decided by a heading, not by the body text.
   //
