@@ -40,7 +40,9 @@ const FP = { username: 'loadtest_006', password: process.env.OFFICER_PASSWORD ??
 const POOL = path.join(__dirname, '../test-data/deregistered-vehicles.json');
 
 const PARENT_INACTIVE = /parent\s+customer\s+is\s+inactive/i;
-const CUSTOMER_INACTIVE = /^(?!.*parent).*customer\s+is\s+inactive/i;
+// Left out deliberately: a "Customer is Inactive" message here would mean the guard fired on the
+// branch rather than the parent, which is the first claim over again. The test cannot currently reach
+// the state where that distinction matters, so matching for it would be dead code.
 
 async function signIn(page: Page, username: string, password: string): Promise<void> {
   await page.context().clearCookies();
