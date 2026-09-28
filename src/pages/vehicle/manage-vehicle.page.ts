@@ -148,7 +148,23 @@ export class ManageVehiclePage extends BasePage {
    */
   private async completeStatusChange(registration: string, wasActive: boolean): Promise<string> {
     const modal = this.page.locator('.modal.show').first();
-    if (!(await modal.isVisible().catch(() => false))) return '';
+
+    // Waited for, not sampled. The toggle fires no request, so settle()'s networkidle wait returns
+    // at once and this check used to run while Bootstrap was still fading the dialog in — so it saw
+    // no modal, returned an empty message, and the caller reported a block that had never been
+    // attempted. The status then failed to change for the most misleading reason available: nothing
+    // was ever submitted.
+    const appeared = await modal
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!appeared) {
+      throw new Error(
+        `The ${wasActive ? 'block' : 'unblock'} dialog for ${registration} never opened, so ` +
+          `nothing was submitted. The toggle flips optimistically, so its new position is not ` +
+          `evidence that anything happened.`
+      );
+    }
 
     const said = ((await modal.textContent()) ?? '').replace(/\s+/g, ' ').trim();
 
