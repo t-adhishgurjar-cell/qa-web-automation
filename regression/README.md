@@ -28,7 +28,7 @@ One file per module. Execute in this order — earlier modules create the data l
 **116 active screens** exist in `dbo.MenuMaster`. This suite covers all of them: in depth where
 behaviour has been measured, structurally where it has not — and each case says which it is.
 
-**[SUITE-STRUCTURE.md](SUITE-STRUCTURE.md)** breaks the eleven modules into **55 sub-modules**,
+**[SUITE-STRUCTURE.md](SUITE-STRUCTURE.md)** breaks the eleven modules into **56 sub-modules**,
 each with its screen count, case range, depth and what is already automated. Use it to split
 execution between testers and to plan the automation phase.
 

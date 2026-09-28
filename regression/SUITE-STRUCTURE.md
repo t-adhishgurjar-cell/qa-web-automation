@@ -1,6 +1,10 @@
 # Suite structure — modules, sub-modules and cases
 
-11 modules · **55 sub-modules** · 391 cases · 116 screens.
+11 modules · **56 sub-modules** · 391 cases · 116 screens.
+
+The sub-module case counts below sum to 394 rather than 391. Three cases are cross-referenced from
+a second sub-module — REG-CO-24 in 02.1, REG-OD-12 in 03.1, REG-OD-27 in 03.5 — and are counted in
+both places. 391 is the number of distinct cases.
 
 Use this to split execution between testers, and to plan the automation phase — the last two
 columns say what each sub-module is worth automating and what already exists.
@@ -175,21 +179,27 @@ neither has been executed.
 
 ## Where the suite stands, by sub-module
 
-| Depth | Sub-modules | Cases | Share of cases |
+| Depth | Sub-modules | Cases | Share |
 |---|---:|---:|---:|
-| measured | 21 | 165 | 42% |
-| partial | 11 | 66 | 17% |
-| structural | 23 | 160 | 41% |
+| measured | 26 | 220 | 56% |
+| partial | 9 | 62 | 16% |
+| structural | 21 | 112 | 28% |
+| | **56** | **394** | |
 
 | Automation | Sub-modules | Cases |
 |---|---:|---:|
-| yes | 10 | 65 |
-| partial | 12 | 92 |
-| none | 33 | 234 |
+| yes | 10 | 66 |
+| partial | 13 | 130 |
+| none | 33 | 198 |
 
-**Two thirds of the cases have no automation, and 41% of them are structural** — written against
-screens nobody has opened. Both numbers are the honest state, not a target; they are here so a
-sprint can be planned against them rather than against an impression.
+**Half the cases have no automation at all, and 28% are structural** — written against screens
+nobody has opened. Both are the honest state rather than a target; they are here so a sprint can be
+planned against numbers instead of an impression.
+
+Note that "measured" is the largest share by case count while "structural" covers the most
+**screens** — 49 of the 116, because Reports and Retail Outlet are wide and shallow. Coverage
+counted by case flatters the suite; counted by screen it does not. Both are in this file
+deliberately.
 
 ---
 
