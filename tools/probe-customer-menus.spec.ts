@@ -24,12 +24,13 @@ test.describe('Tools — probes @tools', () => {
       SELECT MenuId, MenuName, Controller, Action, ParentMenuId, StatusFlag
       FROM dbo.MenuMaster WHERE Controller = 'Customer' ORDER BY MenuOrder`));
 
+    // dbo.Roles names the column RoleName; r.Name fails with "Invalid column name".
     show('which roles each customer screen is mapped to', await db.query(`
-      SELECT m.MenuName, r.Name AS RoleName
+      SELECT m.MenuName, r.RoleName
       FROM dbo.RoleMenuMappings rmm
       JOIN dbo.MenuMaster m ON m.MenuId = rmm.MenuId
       JOIN dbo.Roles r ON r.Id = rmm.RoleId
       WHERE m.Controller = 'Customer' AND rmm.StatusFlag = 1
-      ORDER BY m.MenuName, r.Name`));
+      ORDER BY m.MenuName, r.RoleName`));
   });
 });
