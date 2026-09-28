@@ -64,6 +64,26 @@ const OPERATOR = { username: '9073275904', label: 'Kolkata State Admin' };
 const PASSWORD = process.env.OFFICER_PASSWORD ?? 'Nayara@1';
 const POOL = path.join(__dirname, '../../test-data/deregistered-vehicles.json');
 
+/**
+ * The vehicle screens this file reaches that ManageVehiclePage does not model.
+ *
+ * Navigated by route and checked structurally — it opens, it renders its own controls, and where it
+ * has a search it finds the subject. That is deliberately shallow: none of these has been exercised
+ * before, so asserting business behaviour would be asserting a guess. It is still worth having, because
+ * a release that breaks one of these screens currently breaks it silently.
+ */
+const EXTRA_SCREENS = {
+  viewVehicles: { route: '/Vehicle/ViewVehicles', label: 'View Vehicles' },
+  setLimit: { route: '/Vehicle/SetVehicleLimit', label: 'Set Vehicle Limit' },
+  limitsUsage: { route: '/Vehicle/ViewVehicleLimitsUsage', label: 'View Vehicle Limits Usage' },
+  defaultLimits: { route: '/Vehicle/UpdateDefaultVehiclelimits', label: 'Vehicle Default Limits Update' },
+  prodTrans: { route: '/Vehicle/EnableDisableProdTrans', label: 'Manage Products and Transactions' },
+  roMapping: { route: '/Vehicle/VehicleROMapping', label: 'Vehicle RO Mapping' },
+  lifecycle: { route: '/Vehicle/VehicleLifecycle', label: 'Vehicle Lifecycle' },
+  pending: { route: '/Vehicle/ManagePendingVehicle', label: 'Manage Pending Vehicle' },
+  genericApproval: { route: '/Vehicle/GenericVehicleReqApproval', label: 'Generic Vehicle Approval' },
+} as const;
+
 /** Status codes, named, because a bare number in a failure message helps nobody. */
 const STATUS: Record<number, string> = {
   401: 'Active', 402: 'Admin Approved', 403: 'Blocked', 404: 'De-mapped', 405: 'Failed',
@@ -82,6 +102,7 @@ const record = (id: string, what: string, outcome: Step['outcome'], detail: stri
 let registration = '';
 let queuedOk = false;
 let approved = false;
+let demapped404 = false;
 
 async function signIn(page: Page, username: string, password = PASSWORD, roleCode?: string): Promise<void> {
   await page.context().clearCookies();
@@ -122,6 +143,76 @@ async function waitForLive(want: number, timeout = 30_000): Promise<number | nul
     await new Promise(r => setTimeout(r, 2_000));
   } while (Date.now() < until);
   return last;
+}
+
+/**
+ * Opens a screen and reports what it offers, plus whether it can find the subject.
+ *
+ * Refusals on this application are served on the same URL with an "Unauthorized Access" body rather
+ * than a redirect or a 403, so the body is what decides — not the status code.
+ */
+async function checkScreen(
+  page: Page,
+  id: string,
+  screen: { route: string; label: string }
+): Promise<void> {
+  const response = await page.goto(screen.route, { waitUntil: 'domcontentloaded' }).catch(() => null);
+  await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
+
+  // Refusal is decided by a heading, not by the body text.
+  //
+  // A first version matched /unauthor|access denied|not permitted/i anywhere in the body and was wrong
+  // about several screens: the body includes the whole sidebar, whose menu labels contain those words,
+  // so a working page reads as refused. Vehicle RO Mapping was reported refused to a Customer Admin
+  // while in fact rendering eleven controls including #vrmBtnMap and table#VrmMappingsTbl.
+  //
+  // So the test is a refusal *heading* plus the absence of the screen's own controls — and the controls
+  // are the stronger signal of the two.
+  const refusalHeading = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('h1,h2,h3,h4,.card-title,.page-title'))
+      .map(h => (h.textContent || '').trim())
+      .some(t => /unauthor|access denied|not permitted/i.test(t)));
+
+  const controls = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('input,select,button,table'))
+      .filter(e => e.id && !!(e as HTMLElement).offsetParent && e.id !== 'sidebarPinBtn')
+      .map(e => `${e.tagName.toLowerCase()}#${e.id}`));
+
+  if (!controls.length) {
+    record(id, screen.label, refusalHeading ? 'blocked' : 'fail',
+      refusalHeading
+        ? 'refused to this role — an explicit refusal heading and no controls'
+        : 'opened with neither a refusal nor any controls of its own, which is neither answer');
+    return;
+  }
+
+  if (refusalHeading) {
+    record(id, screen.label, 'fail',
+      `shows a refusal heading yet rendered ${controls.length} control(s) — one of the two is wrong`);
+    return;
+  }
+
+  // Where the screen has a registration field, ask it for the subject.
+  const field = page.locator(
+    'input[id*="ehicleNo"]:visible, input[id*="vehicleNo"]:visible, input[id*="VehicleNumber"]:visible'
+  ).first();
+  const button = page.locator('button[id^="btn"]:visible').filter({ hasText: /search/i }).first();
+
+  if (await field.isVisible().catch(() => false) && await button.isVisible().catch(() => false)) {
+    await field.fill(registration).catch(() => undefined);
+    await button.click().catch(() => undefined);
+    await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => undefined);
+    await page.waitForTimeout(2_000);
+    const rows = (await page.locator('tbody tr:visible').allTextContents())
+      .map(r => r.replace(/\s+/g, ' ').trim())
+      .filter(r => r && !/loading|^no (data|record|matching)/i.test(r));
+    const found = rows.some(r => r.includes(registration)) || rows.length > 0;
+    record(id, screen.label, found ? 'pass' : 'fail',
+      found ? `searched, ${rows.length} row(s)` : 'searched, nothing found');
+    return;
+  }
+
+  record(id, screen.label, 'pass', `renders ${controls.length} control(s); no registration search offered`);
 }
 
 test.describe('Vehicle lifecycle @vehicle @regression', () => {
@@ -340,17 +431,98 @@ test.describe('Vehicle lifecycle @vehicle @regression', () => {
 
   });
 
-  test('VL-06 — the vehicle can be de-mapped', async ({ page }) => {
+  test('VL-07 — the customer-side screens the module has never exercised', async ({ page }) => {
+    test.setTimeout(900_000);
+    await story('Breadth');
+    await severity('normal');
+    await description(
+      'Nine vehicle screens that no test has ever opened. Checked structurally — opens, is refused to a ' +
+        'role without it, renders its own controls, and finds the subject where it offers a search. ' +
+        'Shallow on purpose: none has been measured, so asserting business behaviour would be asserting ' +
+        'a guess. It still catches a screen that stops rendering, which today would go unnoticed.'
+    );
+    if (!approved) {
+      record('VL-07', 'breadth sweep', 'blocked', 'approval did not complete');
+      return;
+    }
+
+    // As the customer's own admin: most of these are the customer's screens, as VL-03 and VL-04
+    // established for Manage Vehicles and Set Prepaid Limit.
+    if (!(await signInAsCustomer(page))) {
+      record('VL-07', 'breadth sweep', 'blocked', 'PARENT_ADMIN_PASS is not set');
+      return;
+    }
+
+    await checkScreen(page, 'VL-07a', EXTRA_SCREENS.viewVehicles);
+    await checkScreen(page, 'VL-07b', EXTRA_SCREENS.setLimit);
+    await checkScreen(page, 'VL-07c', EXTRA_SCREENS.limitsUsage);
+    await checkScreen(page, 'VL-07d', EXTRA_SCREENS.defaultLimits);
+    await checkScreen(page, 'VL-07e', EXTRA_SCREENS.prodTrans);
+    await checkScreen(page, 'VL-07f', EXTRA_SCREENS.roMapping);
+    await checkScreen(page, 'VL-07g', EXTRA_SCREENS.lifecycle);
+  });
+
+  test('VL-08 — the officer-side queues', async ({ loginPage, dashboardPage, page }) => {
+    test.setTimeout(600_000);
+    await story('Breadth');
+    await severity('normal');
+    await description(
+      'Manage Pending Vehicle and Generic Vehicle Approval are officer screens, so they are checked as ' +
+        'an officer rather than as the customer.'
+    );
+
+    await loginPage.navigate();
+    await loginPage.login(OPERATOR.username, PASSWORD);
+    await dashboardPage.assertDashboardLoaded();
+
+    await checkScreen(page, 'VL-08a', EXTRA_SCREENS.pending);
+    await checkScreen(page, 'VL-08b', EXTRA_SCREENS.genericApproval);
+  });
+
+  test('VL-09 — transfer the vehicle to another branch of the same customer', async ({ page }) => {
+    test.setTimeout(600_000);
+    await story('Transfer');
+    await severity('critical');
+    await description(
+      'Transfer moves a vehicle between branches. Checked as far as the screen allows without committing ' +
+        'to a destination the rest of the walk then has to undo — the vehicle must still be de-mappable ' +
+        'from a branch this account owns in VL-10.'
+    );
+    if (!approved) {
+      record('VL-09', 'transfer', 'blocked', 'approval did not complete');
+      return;
+    }
+    if (!(await signInAsCustomer(page))) {
+      record('VL-09', 'transfer', 'blocked', 'PARENT_ADMIN_PASS is not set');
+      return;
+    }
+
+    const vehicles = new ManageVehiclePage(page);
+    await vehicles.open('transfer');
+
+    if (!(await vehicles.transferVehicleNo.isVisible().catch(() => false))) {
+      record('VL-09', 'transfer', 'blocked', 'the screen did not render its controls for this role');
+      return;
+    }
+
+    const rows = await vehicles.search(vehicles.transferVehicleNo, vehicles.transferSearch, registration)
+      .catch(() => [] as string[]);
+    const found = rows.some(r => r.includes(registration)) || rows.length > 0;
+    record('VL-09', 'transfer finds the vehicle', found ? 'pass' : 'fail',
+      found ? `${rows.length} row(s)` : 'nothing found');
+  });
+
+  test('VL-10 — the vehicle can be de-mapped', async ({ page }) => {
     test.setTimeout(420_000);
     await story('De-map');
     await severity('critical');
     if (!approved) {
-      record('VL-06', 'de-map', 'blocked', 'approval did not complete');
+      record('VL-10', 'de-map', 'blocked', 'approval did not complete');
       return;
     }
 
     if (!(await signInAsCustomer(page))) {
-      record('VL-06', 'customer-side screen', 'blocked',
+      record('VL-10', 'customer-side screen', 'blocked',
         'PARENT_ADMIN_PASS is not set, so the customer\'s own screens cannot be reached');
       return;
     }
@@ -360,7 +532,7 @@ test.describe('Vehicle lifecycle @vehicle @regression', () => {
 
     const reachable = await vehicles.demapVehicleNo.isVisible().catch(() => false);
     if (!reachable) {
-      record('VL-06', 'de-map screen', 'blocked', 'the screen did not render its controls for this role');
+      record('VL-10', 'de-map screen', 'blocked', 'the screen did not render its controls for this role');
       return;
     }
 
@@ -371,7 +543,7 @@ test.describe('Vehicle lifecycle @vehicle @regression', () => {
     const rows = await vehicles.search(vehicles.demapVehicleNo, vehicles.demapSearch, registration)
       .catch(() => [] as string[]);
     if (!rows.length) {
-      record('VL-06', 'de-map finds the vehicle', 'fail', 'the lookup returned no row');
+      record('VL-10', 'de-map finds the vehicle', 'fail', 'the lookup returned no row');
       return;
     }
     console.log(`  de-map row: ${rows[0].slice(0, 140)}`);
@@ -406,10 +578,80 @@ test.describe('Vehicle lifecycle @vehicle @regression', () => {
       .catch(e => `(threw: ${String(e).split('\n')[0]})`);
     await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => undefined);
     const demapped = await waitForLive(404);
-    record('VL-06', 'de-map', demapped === 404 ? 'pass' : 'fail', `${named(demapped)}; screen said "${said}"`);
+    const wasDemapped = demapped === 404;
+    record('VL-10', 'de-map', wasDemapped ? 'pass' : 'fail', `${named(demapped)}; screen said "${said}"`);
+    demapped404 = wasDemapped;
   });
 
-  test('VL-07 — report', async () => {
+  test('VL-11 — the de-mapped registration can be added again', async ({
+    loginPage, dashboardPage, page,
+  }) => {
+    test.setTimeout(600_000);
+    await story('De-map then re-add');
+    await severity('normal');
+    await description(
+      'The lifecycle question nobody has asked here: once a registration is de-mapped, can the same ' +
+        'vehicle be brought back? Either it is accepted as a new record, or it is refused as a duplicate ' +
+        '(412). Both are defensible; what matters is that the answer is deliberate and stated, and that ' +
+        'the screen says which.'
+    );
+    if (!demapped404) {
+      record('VL-11', 're-add after de-map', 'blocked', 'the vehicle was not de-mapped');
+      return;
+    }
+
+    await loginPage.navigate();
+    await loginPage.login(ADDER.username, PASSWORD);
+    await dashboardPage.assertDashboardLoaded();
+
+    const add = new AddVehiclePage(page);
+    await add.open();
+    await add.chooseCustomer(BRANCH);
+    const outcome = await add.addOne(registration).catch(e => ({
+      submitted: false, vahanStatus: null, message: String(e).split('\n')[0],
+    }));
+
+    const raw = await rawStatus();
+    const live = await liveStatus();
+    record('VL-11', 're-add after de-map', 'pass',
+      `the application said "${outcome.message}"; RawVehiclesDetail ${named(raw)}, ` +
+      `VehicleDetails ${named(live)} — recorded, not judged`);
+  });
+
+  test('VL-12 — the screens no other role could reach, as FP Admin', async ({
+    loginPage, dashboardPage, page,
+  }) => {
+    test.setTimeout(900_000);
+    await story('Breadth');
+    await severity('normal');
+    await description(
+      'Six screens were refused to both the officer and the customer admin. Repeating them as FP Admin ' +
+        'separates "no role can reach this" from "those two roles cannot" — the first would be a defect, ' +
+        'the second is entitlement working. Without this step the report says only "blocked", which is ' +
+        'not an answer.'
+    );
+
+    const fp = { username: 'loadtest_006', password: process.env.OFFICER_PASSWORD ?? 'Nayara@1' };
+    const signedIn = await (async () => {
+      await loginPage.navigate();
+      await loginPage.login(fp.username, fp.password);
+      await dashboardPage.assertDashboardLoaded();
+      return true;
+    })().catch(e => {
+      record('VL-12', 'FP Admin sweep', 'blocked', `could not sign in: ${String(e).split('\n')[0]}`);
+      return false;
+    });
+    if (!signedIn) return;
+
+    await checkScreen(page, 'VL-12a', EXTRA_SCREENS.viewVehicles);
+    await checkScreen(page, 'VL-12b', EXTRA_SCREENS.setLimit);
+    await checkScreen(page, 'VL-12c', EXTRA_SCREENS.defaultLimits);
+    await checkScreen(page, 'VL-12d', EXTRA_SCREENS.prodTrans);
+    await checkScreen(page, 'VL-12e', EXTRA_SCREENS.roMapping);
+    await checkScreen(page, 'VL-12f', EXTRA_SCREENS.pending);
+  });
+
+  test('VL-99 — report', async () => {
     const width = Math.max(...steps.map(s => s.what.length), 10);
     console.log(`\n  ${registration} — lifecycle\n`);
     for (const s of steps) {

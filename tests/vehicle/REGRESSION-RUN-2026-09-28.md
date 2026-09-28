@@ -25,44 +25,78 @@ that is the wrong default: one broken case hides everything after it.
 
 ---
 
-## Lifecycle regression — 7 of 7 pass
+## Complete vehicle management regression — 18 pass, 6 fail, 24 checks
 
-`tests/vehicle/vehicle-lifecycle.spec.ts`, added for this run, walks one vehicle from addition to
-de-mapping and asserts every transition against the database rather than the screen.
+`tests/vehicle/vehicle-lifecycle.spec.ts` walks one vehicle through its whole life and then sweeps every
+remaining screen in the module. All 17 vehicle screens in `dbo.MenuMaster` are now touched. Every status
+transition is asserted against the database rather than the screen.
 
-Subject `DL4CAE6757` on `NAYAFP2023400247`, a branch of the parent admin's own customer.
+Subject `DL4CAE6761` on `NAYAFP2023400247`, a branch of the parent admin's own customer.
+
+### The lifecycle — 11 of 11
 
 | Step | Check | Result |
 |---|---|---|
-| VL-01 | Add a vehicle whose Vahan check fails | **pass** — Vahan 405, queued at **411** |
-| VL-02 | Approve from the queue | **pass** — `VehicleDetails` **401**, `RawVehiclesDetail` **402** |
-| VL-03 | Listed on Manage Vehicles | **pass** — 1 row |
-| VL-04 | Found on Set Prepaid Limit | **pass** — 1 row |
+| VL-01 | Add, Vahan fails | **pass** — Vahan 405, queued **411** |
+| VL-02 | Approve from the queue | **pass** — `VehicleDetails` **401**, `Raw` **402** |
+| VL-03 | Listed on Manage Vehicles | **pass** |
+| VL-04 | Found on Set Prepaid Limit | **pass** |
 | VL-05a | Block | **pass** — **403** |
 | VL-05b | Unblock | **pass** — **401** |
-| VL-06 | De-map | **pass** — **404**, confirm dialog asks for mandatory Remarks |
+| VL-07c | View Vehicle Limits Usage | **pass** |
+| VL-07f | Vehicle RO Mapping | **pass** — 11 controls |
+| VL-07g | Vehicle Lifecycle | **pass** |
+| VL-09 | Transfer finds the vehicle | **pass** |
+| VL-10 | De-map | **pass** — **404**, confirm asks for mandatory Remarks |
 
-**Three roles, because no one account can walk it.** The officer adds, approves, blocks and unblocks;
-Manage Vehicles, Set Prepaid Limit and De-map never render their controls for an officer, so those run
-as the customer's own parent admin. An earlier attempt used one officer throughout and reported three
-screens as broken when they were simply not its to see.
+### Three roles, because no one account can walk it
+The officer adds, approves, blocks and unblocks. Manage Vehicles, Set Prepaid Limit, De-map, Transfer and
+RO Mapping are the customer's own screens and run as its parent admin. Four more open only to FP Admin.
+An earlier attempt used one officer throughout and reported three working screens as broken.
 
-### Every failure in this module was mine
+### De-map then re-add — recorded, not judged
+VL-11 re-adds the de-mapped registration. The application answers **"Vehicle has been submitted for
+approval"**, and afterwards `RawVehiclesDetail` is at **402** and `VehicleDetails` at **404** — so no new
+pending record appears at 411. Either the re-add was absorbed into the existing rows or it did nothing,
+and the message says neither. Worth a developer's word before it is called a defect; the test records the
+figures rather than asserting an expectation nobody has stated.
 
-Worth stating, because the module came out of this in better shape than the suite did. Five faults,
-all in the automation:
+---
 
-| What looked broken | What it was |
-|---|---|
-| Block did nothing, said nothing | `completeStatusChange()` **sampled** `.modal.show`. The toggle fires no request, so `settle()` returned before Bootstrap had faded the dialog in — it saw no modal, returned an empty message, and the test reported a block never attempted |
-| Manage Vehicles, Prepaid Limit and De-map all found nothing | `search()` read the grid **immediately**. These are DataTables fetching rows separately, so `settle()` completed before the request began. Now waits for a row or the grid's own empty state |
-| Manage Vehicles found nothing even so | the branch had to be chosen in `#branchOfficeUidVal` first; `#GetCustomerIdValue` is a display field |
-| Prepaid Limit found nothing | its `#CustomerId` is a **select** of branch UIDs, not a text field |
-| De-map "found no row" | that grid's columns are Customer ID, Name, Branch Location, Branch UID, Status, Action — **the registration is not in the row**, and the action is a page-level `#btnDeMapOpenConfirm`, not a control inside a cell |
+## Two findings from the sweep
 
-Each is now fixed in the page object or the spec, with the reason recorded next to the fix. Every one
-of them would have been reported as an application defect by a less sceptical run, and three of them
-nearly were.
+### 1. A screen a role is not entitled to renders blank instead of refusing
+Four screens render nothing at all — no controls, and no refusal — for the roles that lack them, while
+working normally for FP Admin:
+
+| Screen | Customer admin / officer | FP Admin |
+|---|---|---|
+| Set Vehicle Limit | blank | **8 controls** |
+| Vehicle Default Limits Update | blank | **6 controls** |
+| Manage Products and Transactions | blank | **6 controls** |
+| Manage Pending Vehicle | blank (State Admin) | **works, 1 row** |
+
+So the entitlement itself is right — those roles should not have them. What is wrong is the answer: an
+empty page rather than "Unauthorized Access". The user is left unable to tell a screen they may not use
+from one that is broken, and neither can a test. This is the same silent-answer family as the rest of this
+run.
+
+### 2. `/Vehicle/ViewVehicles` renders nothing for any role tried
+No controls for the customer admin **or** FP Admin, and no refusal heading either — while
+`RoleMenuMappings` grants it to **108 roles**, including Admin with 1,171 active users, and the sidebar
+offers the link. Every other screen in the module renders for at least one of the roles tested. This one
+renders for none of them, which makes it the one candidate here for a genuinely broken screen rather than
+an entitlement gap.
+
+---
+
+## A correction to this report's own method
+An earlier version of the sweep decided "refused" by matching `/unauthor|access denied|not permitted/i`
+anywhere in the page body. The body contains the whole sidebar, whose menu labels include those words, so
+working screens read as refused — **Vehicle RO Mapping was reported refused to a Customer Admin while in
+fact rendering eleven controls including `#vrmBtnMap` and `table#VrmMappingsTbl`.** The check now requires
+a refusal *heading* and weighs the presence of the screen's own controls above it. Two of the six original
+"blocked" results were false, and the numbers above are the corrected ones.
 
 ---
 
