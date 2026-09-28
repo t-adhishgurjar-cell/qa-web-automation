@@ -83,7 +83,9 @@ here once. Scope the action to the matched row.
 | REG-VEH-23 | P1 | Reject from the approval queue | The vehicle lands in a rejected state and leaves the queue. Never successfully exercised — treat as untested |
 | REG-VEH-24 | P1 | The queue's status column | Read the cell by its content, not by column index — a guessed index returned "-" for all 146 rows here and hid a real finding |
 | REG-VEH-25 | P1 | Queue contents against the database | Match on `(VehicleNo, CustomerID)` together. A registration alone is not a key and produced 20 false offenders |
-| REG-VEH-26 | P1 | Approve a vehicle whose customer was deactivated after it entered the queue | Refused, with the customer status named |
+| REG-VEH-26 | P1 | Approve a vehicle whose customer was deactivated after it entered the queue | Refused: "Customer is Inactive. Vehicle cannot be approved." `ApproveVehicleWithRC` answers `statusCode 0`, the vehicle stays 411. **Verified fixed 28 Sep — NFP-1913** |
+| REG-VEH-26b | P1 | Approve a vehicle whose **parent** customer is inactive | Refused naming the parent. **Cannot be set up:** deactivating a parent cascades to its branches, and a branch cannot be reactivated while the parent is inactive — so an Active branch under an Inactive parent is unreachable from these screens. Ask the developer for the route before signing this off |
+| REG-VEH-26c | P2 | Activating a branch whose parent is inactive | Refused **with a message**. Currently silent — the action posts, nothing changes, nothing is said |
 | REG-VEH-27 | P2 | A grid still rendering | "Loading…" is not a data row. Wait for it to resolve before counting |
 
 ---

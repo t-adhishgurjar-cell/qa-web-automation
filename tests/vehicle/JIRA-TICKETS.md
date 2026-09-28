@@ -54,11 +54,39 @@ POST ApproveVehicleWithRC
 So the guard is specific to the customer's status rather than a button that has stopped working —
 which is the control that makes the first result meaningful.
 
-### Still to verify
-The second claim — *"Parent customer is Inactive. Vehicle cannot be approved."* — is **untested**. It
-needs a branch customer with a vehicle at 411 whose **parent** is inactive, and no such record
-exists: of the 139 vehicles currently pending approval, none belongs to a customer that is inactive
-or whose parent is. Seeding it means adding a vehicle to a branch and deactivating the parent.
+### The second claim cannot be exercised through the UI
+
+*"Parent customer is Inactive. Vehicle cannot be approved."* was tested by building the precondition
+from scratch, and the precondition turns out not to exist.
+
+Attempted on this suite's own pair — parent `NAYAFP1023400254`, branch `NAYAFP2023400255`:
+
+1. Seeded `DL1GB5987` on the **branch**. Vahan returned 405, the vehicle reached **411**. Both
+   customers Active.
+2. Deactivated the **parent** only. The branch went to **104 on its own** — deactivating a parent
+   cascades to its branches.
+3. Tried to put the branch back to Active while the parent stayed Inactive. The screen offers
+   Activate, the action posts, and the branch **stays at 104**.
+
+So an **Active branch under an Inactive parent** cannot be produced from these screens. Which means
+the message is unreachable by this route: with the branch itself inactive, the *first* guard applies,
+and a refusal would prove the first claim over again rather than the second.
+
+**This is not a defect — it is a question for the developer.** Either the message guards a state
+arrived at some other way (a branch created or imported under an already-inactive parent, or SAP
+data), or it is defensive code for a case the UI prevents. Both are reasonable; they need different
+sign-offs, and an unreachable message cannot be signed off as working.
+
+If there is a route to that state, name it and this will be run against it —
+`tools/verify-nfp1913-parent.spec.ts` builds everything else and stops exactly where the state
+becomes impossible.
+
+### A second silent refusal, found on the way
+Step 3 above is its own small finding. Activating a branch whose parent is inactive is **refused with
+no message at all** — the action is offered, the click posts, the status does not change, and the
+screen says nothing. That is the same shape as the status change itself, which reports
+`"… successfully."` from `UpdateCustomerStatus` and renders nothing. Both leave an operator unable to
+tell a refusal from a success.
 
 ### Worth noting separately
 - The status change posts `UpdateCustomerStatus` returning `"… successfully."`, and **the page
