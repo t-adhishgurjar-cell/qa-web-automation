@@ -90,7 +90,14 @@ export default defineConfig({
   reporter: [
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ['junit', { outputFile: 'test-results/junit.xml' }],
-    ['allure-playwright', { outputFolder: 'allure-results', detail: true, suiteTitle: false }],
+    // resultsDir, not outputFolder.
+    //
+    // allure-playwright is on 3.7.1, where the option is `resultsDir`; `outputFolder` was the Allure 2
+    // name. Passing the old options object did not warn and did not fail the run — it simply wrote no
+    // results at all, so `npm run allure:report` generated an empty report from an empty directory and
+    // every run looked like it had produced nothing to report. Measured: the same project writes 5
+    // result files with the reporter's defaults and 0 through the old options.
+    ['allure-playwright', { resultsDir: 'allure-results', detail: true }],
     ['./reporters/custom-reporter.ts'],
     ...(process.env.CI ? [['github'] as ['github']] : [['list'] as ['list']]),
   ],

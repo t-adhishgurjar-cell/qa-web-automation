@@ -94,6 +94,15 @@ export default class CustomReporter implements Reporter {
   private config?: FullConfig;
   private collected = 0;
 
+  /**
+   * The projects that actually ran, as opposed to the thirteen the config declares.
+   *
+   * Needed for the report's own name. It said "FleetPlus Login" on every report this framework has ever
+   * produced, including a vehicle regression, so anyone opening an attached report was told it described
+   * something else.
+   */
+  private readonly ranProjects = new Set<string>();
+
   onBegin(config: FullConfig, suite: Suite): void {
     this.startTime = Date.now();
     this.config = config;
@@ -104,6 +113,9 @@ export default class CustomReporter implements Reporter {
   onTestEnd(test: TestCase, result: TestResult): void {
     this.summary.total++;
     this.summary.duration += result.duration;
+
+    const project = test.parent?.project()?.name;
+    if (project) this.ranProjects.add(project);
 
     const icon = {
       passed:  '✅',
@@ -193,7 +205,10 @@ export default class CustomReporter implements Reporter {
       const environment: Record<string, string> = {
         Environment: env,
         'Base.URL': process.env.BASE_URL ?? '(unset)',
-        'Test.suite': 'FleetPlus Login',
+        // Named from the projects that actually ran, not hardcoded.
+        'Test.suite': this.ranProjects.size
+          ? `FleetPlus Web — ${[...this.ranProjects].sort().join(', ')}`
+          : 'FleetPlus Web',
         'Test.cases.source': 'test-data/Nayara_FleetPlus_Login_TestCases.xlsx',
         'Credentials.source': 'test-data/FleetPlusUsercredentials.xlsx',
         'Tests.collected': String(collected),
@@ -251,12 +266,12 @@ export default class CustomReporter implements Reporter {
           {
             name: process.env.CI ? 'GitHub Actions' : 'Local run',
             type: process.env.CI ? 'github' : 'local',
-            buildName: `FleetPlus Login — ${env}`,
+            buildName: `FleetPlus Web — ${env}`,
             buildOrder: Number(process.env.GITHUB_RUN_NUMBER ?? 0),
             buildUrl: process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY
               ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
               : undefined,
-            reportName: 'FleetPlus Login regression',
+            reportName: 'FleetPlus Web regression',
           },
           null,
           2
