@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from '../base.page';
 
 /**
@@ -88,10 +88,35 @@ export class ManageVehiclePage extends BasePage {
     await this.settle();
     await this.dismissDialog();
 
+    // Wait for the grid to answer, rather than reading it as soon as the click returns.
+    //
+    // These are DataTables that fetch their rows separately — SearchManageVehiclesGridData and its
+    // siblings — so settle()'s networkidle wait can complete before that request has even started.
+    // Reading immediately returns an empty tbody, which is indistinguishable from "the vehicle is not
+    // there". That reported three screens as finding nothing for a vehicle every one of them could in
+    // fact find: Manage Vehicles returned it in a single row when given a moment.
+    //
+    // The wait ends on either outcome — a real row, or the grid's own empty state — so a genuinely
+    // absent vehicle still returns quickly instead of burning the timeout.
+    const settledGrid = this.page
+      .locator('tbody tr')
+      .filter({ hasNotText: /loading/i })
+      .first();
+    await settledGrid.waitFor({ state: 'attached', timeout: 20_000 }).catch(() => undefined);
+
+    await expect
+      .poll(async () => {
+        const texts = await this.page.locator('tbody tr:visible').allTextContents();
+        const usable = texts.filter(t => t.trim() && !/loading/i.test(t));
+        return usable.length;
+      }, { timeout: 20_000, message: `the grid never settled after searching ${registration}` })
+      .toBeGreaterThan(0)
+      .catch(() => undefined);
+
     const rows = await this.page.locator('tbody tr:visible').allTextContents();
     return rows
       .map(r => r.replace(/\s+/g, ' ').trim())
-      .filter(r => r.length > 0 && !/^no (data|record|matching)/i.test(r));
+      .filter(r => r.length > 0 && !/^no (data|record|matching)/i.test(r) && !/loading/i.test(r));
   }
 
   /**

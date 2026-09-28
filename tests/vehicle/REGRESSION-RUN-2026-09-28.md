@@ -8,7 +8,7 @@ green state.
 
 ## What the automated vehicle project actually contains
 
-**3 runnable tests.** Worth stating plainly, because "run the vehicle regression" sounds like more
+**3 runnable tests before this run, 10 after** — the lifecycle spec adds 7. Worth stating plainly, because "run the vehicle regression" sounds like more
 than it is:
 
 | Test | Result |
@@ -22,6 +22,47 @@ in this project. `coverage.api.spec.ts` matches the `api` project, not `vehicle`
 
 **The describe is serial**, so the first failure stopped the remaining test. For a regression suite
 that is the wrong default: one broken case hides everything after it.
+
+---
+
+## Lifecycle regression — 7 of 7 pass
+
+`tests/vehicle/vehicle-lifecycle.spec.ts`, added for this run, walks one vehicle from addition to
+de-mapping and asserts every transition against the database rather than the screen.
+
+Subject `DL4CAE6757` on `NAYAFP2023400247`, a branch of the parent admin's own customer.
+
+| Step | Check | Result |
+|---|---|---|
+| VL-01 | Add a vehicle whose Vahan check fails | **pass** — Vahan 405, queued at **411** |
+| VL-02 | Approve from the queue | **pass** — `VehicleDetails` **401**, `RawVehiclesDetail` **402** |
+| VL-03 | Listed on Manage Vehicles | **pass** — 1 row |
+| VL-04 | Found on Set Prepaid Limit | **pass** — 1 row |
+| VL-05a | Block | **pass** — **403** |
+| VL-05b | Unblock | **pass** — **401** |
+| VL-06 | De-map | **pass** — **404**, confirm dialog asks for mandatory Remarks |
+
+**Three roles, because no one account can walk it.** The officer adds, approves, blocks and unblocks;
+Manage Vehicles, Set Prepaid Limit and De-map never render their controls for an officer, so those run
+as the customer's own parent admin. An earlier attempt used one officer throughout and reported three
+screens as broken when they were simply not its to see.
+
+### Every failure in this module was mine
+
+Worth stating, because the module came out of this in better shape than the suite did. Five faults,
+all in the automation:
+
+| What looked broken | What it was |
+|---|---|
+| Block did nothing, said nothing | `completeStatusChange()` **sampled** `.modal.show`. The toggle fires no request, so `settle()` returned before Bootstrap had faded the dialog in — it saw no modal, returned an empty message, and the test reported a block never attempted |
+| Manage Vehicles, Prepaid Limit and De-map all found nothing | `search()` read the grid **immediately**. These are DataTables fetching rows separately, so `settle()` completed before the request began. Now waits for a row or the grid's own empty state |
+| Manage Vehicles found nothing even so | the branch had to be chosen in `#branchOfficeUidVal` first; `#GetCustomerIdValue` is a display field |
+| Prepaid Limit found nothing | its `#CustomerId` is a **select** of branch UIDs, not a text field |
+| De-map "found no row" | that grid's columns are Customer ID, Name, Branch Location, Branch UID, Status, Action — **the registration is not in the row**, and the action is a page-level `#btnDeMapOpenConfirm`, not a control inside a cell |
+
+Each is now fixed in the page object or the spec, with the reason recorded next to the fix. Every one
+of them would have been reported as an application defect by a less sceptical run, and three of them
+nearly were.
 
 ---
 
