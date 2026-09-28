@@ -2,18 +2,6 @@ import { test, expect } from '@playwright/test';
 import { LoginPage } from '../src/pages/login.page';
 import { DashboardPage } from '../src/pages/dashboard.page';
 import { CustomerStatusPage } from '../src/pages/customer-management/customer-status.page';
-/**
- * Who changes the customer's status.
- *
- * Not FP Admin: that account's password has expired — sign-in reports "Password expired. Reset
- * required." — so it cannot be used until someone resets it. The Ahmedabad officers are tried in
- * order of scope instead, narrowest last, and the first that can open Manage Customer Status is
- * used. Worth reporting separately: the account this suite treats as its administrator is unusable.
- */
-const STATUS_CHANGERS = [
-  { label: 'Ahmedabad State Admin', mobile: process.env.VERIFY_STATUS_USER ?? '9073068501' },
-  { label: 'Ahmedabad I Division Admin', mobile: '9073139002' },
-];
 import type { Page } from '@playwright/test';
 
 /**
@@ -56,6 +44,25 @@ const CUSTOMER = process.env.VERIFY_CUSTOMER ?? 'NAYAFP2023400255';
 const APPROVER = { label: 'Kolkata State Admin (WB_NE / East)', mobile: '9073275904' };
 const PASSWORD = process.env.OFFICER_PASSWORD ?? 'Nayara@1';
 
+/**
+ * Who changes the customer's status.
+ *
+ * Not FP Admin: that account's password has expired — sign-in reports "Password expired. Reset
+ * required." — so it cannot be used until someone resets it. The Ahmedabad officers are tried in
+ * order of scope instead, narrowest last, and the first that can open Manage Customer Status is
+ * used. Worth reporting separately: the account this suite treats as its administrator is unusable.
+ */
+const STATUS_CHANGERS = [
+  // FP Admin first: the role mapping grants Activate / Deactivate Customer only to FP_ADMIN and
+  // HO_ADMIN, and none of the officer accounts this suite holds has it. Its username is not a
+  // mobile number, which is why these are `username` rather than `mobile`.
+  { label: 'FP Admin', username: process.env.VERIFY_STATUS_USER ?? 'loadtest_006',
+    password: process.env.VERIFY_STATUS_PASS ?? PASSWORD },
+  { label: 'Ahmedabad State Admin', username: '9073068501', password: PASSWORD },
+  { label: 'Ahmedabad I Division Admin', username: '9073139002', password: PASSWORD },
+];
+
+
 const CUSTOMER_INACTIVE = /customer\s+is\s+inactive/i;
 const PARENT_INACTIVE = /parent\s+customer\s+is\s+inactive/i;
 const APPROVED = /approved\s+successfully/i;
@@ -70,6 +77,29 @@ async function signIn(page: Page, username: string, password: string): Promise<v
 }
 
 /** Everything the page chose to say, with the required-field asterisks filtered out. */
+/**
+ * The customer's status, read after the grid has actually refreshed.
+ *
+ * A single search() then currentStatus() returns the previous value: the status change posts, the
+ * grid reloads asynchronously, and a read taken straight afterwards sees the old row. That reported
+ * a successful deactivation as "still Active", which then skipped the restore and left the customer
+ * switched off — the one kind of damage this test must not do. So the read is polled.
+ */
+async function settledStatus(
+  status: CustomerStatusPage,
+  customer: string,
+  expected?: 'Active' | 'Inactive'
+): Promise<'Active' | 'Inactive' | null> {
+  let last: 'Active' | 'Inactive' | null = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await status.open();
+    await status.search(customer);
+    last = await status.currentStatus();
+    if (!expected || last === expected) return last;
+  }
+  return last;
+}
+
 async function whatItSaid(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const out: string[] = [];
@@ -120,12 +150,15 @@ test.describe('Tools — verification @tools', () => {
 
     // ── Deactivate, as the first account that can reach the screen.
     const status = new CustomerStatusPage(page);
-    let changer: string | null = null;
+    let changer: { label: string; username: string; password: string } | null = null;
     for (const candidate of STATUS_CHANGERS) {
-      await signIn(page, candidate.mobile, PASSWORD);
+      const signedIn = await signIn(page, candidate.username, candidate.password)
+        .then(() => true)
+        .catch(e => { console.log(`  ${candidate.label} could not sign in: ${String(e).split('\n')[0]}`); return false; });
+      if (!signedIn) continue;
       const reachable = await status.open().then(() => true).catch(() => false);
-      console.log(`  ${candidate.label} (${candidate.mobile}) can open Manage Customer Status: ${reachable}`);
-      if (reachable) { changer = candidate.mobile; break; }
+      console.log(`  ${candidate.label} (${candidate.username}) can open Manage Customer Status: ${reachable}`);
+      if (reachable) { changer = candidate; break; }
     }
     expect(changer, 'No available account can open Manage Customer Status').toBeTruthy();
 
@@ -137,9 +170,11 @@ test.describe('Tools — verification @tools', () => {
     try {
       if (before === 'Active') {
         console.log(`  action offered: ${await status.availableAction()}`);
+        // The status change posts to UpdateCustomerStatus, which answers
+        // {"status":1,"reason":"… successfully."} — but the page renders nothing, so an empty
+        // message here is normal and is not evidence that the change failed.
         console.log(`  deactivating: ${JSON.stringify(await status.act('confirm'))}`);
-        await status.search(CUSTOMER);
-        const now = await status.currentStatus();
+        const now = await settledStatus(status, CUSTOMER, 'Inactive');
         console.log(`  ${CUSTOMER} is now ${now}`);
         switchedOff = now === 'Inactive';
       } else if (before === 'Inactive') {
@@ -162,9 +197,28 @@ test.describe('Tools — verification @tools', () => {
       console.log(`\n  acting on: ${(await row.textContent())?.replace(/\s+/g, ' ').trim().slice(0, 150)}`);
 
       await row.locator('.btn-approve-vahan').first().click();
+
+      // Answer the confirmation. This is not optional and its absence is why an earlier run
+      // reported "the application said nothing": Approve raises "Approve vehicle <reg>? Cancel |
+      // Yes", and without answering it no request is sent at all — so the vehicle stayed pending
+      // for the wrong reason and the fix looked silent when it was simply never invoked.
+      const confirm = page.locator('.modal.show').first();
+      if (await confirm.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false)) {
+        console.log(`  confirmation: ${((await confirm.textContent()) ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)}`);
+        const yes = confirm.locator('button:visible, .btn:visible')
+          .filter({ hasText: /^\s*(yes|confirm|ok|approve)/i })
+          .filter({ hasNotText: /^\s*(no|cancel|close)/i }).first();
+        await expect(yes, 'The approval confirmation offered nothing to accept').toBeVisible();
+        await yes.click();
+      } else {
+        throw new Error(
+          'Approve raised no confirmation dialog, so nothing was submitted. The outcome below ' +
+          'would say nothing about the fix.'
+        );
+      }
+
       await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
-      await page.locator('.modal.show').first().waitFor({ state: 'visible', timeout: 10_000 })
-        .catch(() => undefined);
+      await page.waitForTimeout(2_000);
 
       const said = await whatItSaid(page);
       const text = said.join(' ');
@@ -196,15 +250,22 @@ test.describe('Tools — verification @tools', () => {
     } finally {
       // Reactivate whatever was switched off, whatever happened above. Leaving a customer
       // deactivated stops it transacting — damage a test must not do.
-      if (switchedOff && before === 'Active' && changer) {
-        await signIn(page, changer, PASSWORD);
+      // Restore on what the customer's status actually is now, not on what this run believes it
+      // did. An earlier version keyed the restore off its own flag, a stale read set that flag
+      // wrong, and the customer was left deactivated — so the condition is the live status and the
+      // target is whatever it was at the start.
+      if (changer && before) {
+        await signIn(page, changer.username, changer.password);
         const restore = new CustomerStatusPage(page);
-        await restore.open();
-        await restore.search(CUSTOMER);
-        if ((await restore.currentStatus()) === 'Inactive') {
-          console.log(`\n  reactivating: ${JSON.stringify(await restore.act('confirm'))}`);
-          await restore.search(CUSTOMER);
-          console.log(`  ${CUSTOMER} is now ${await restore.currentStatus()}`);
+        const actual = await settledStatus(restore, CUSTOMER);
+        console.log(`\n  restoring: ${CUSTOMER} is ${actual}, should be ${before}`);
+        if (actual && actual !== before) {
+          console.log(`  ${JSON.stringify(await restore.act('confirm'))}`);
+          const final = await settledStatus(restore, CUSTOMER, before);
+          console.log(`  ${CUSTOMER} is now ${final}`);
+          expect(final, `${CUSTOMER} could not be restored to ${before}`).toBe(before);
+        } else {
+          console.log('  nothing to restore');
         }
       }
     }

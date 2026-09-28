@@ -23,6 +23,63 @@ Status codes used throughout (`StatusMaster`, `EntityTypeId 4`): 401 Active, 402
 
 ---
 
+## VERIFIED FIXED — NFP-1913 — a pending vehicle can no longer be approved for an inactive customer
+
+**Verified 28 September 2026** against `webqa.fleetforc.com`. Closing the defect raised below.
+
+### What was checked
+Customer `NAYAFP2023400255` (state 4, division 17), vehicle `DL4CNB1474` at 411, approved by State
+Admin `9073275904` — Users.Id 230688, region 1, a different region from the customer, which is the
+cross-scope exposure that made this matter.
+
+With the customer **Inactive**:
+
+```
+POST ApproveVehicleWithRC
+  {"statusCode":0,
+   "message":"Customer is Inactive. Vehicle cannot be approved.",
+   "approvedCount":0,"failedCount":1}
+```
+
+On screen: **"Customer is Inactive. Vehicle cannot be approved."** — the exact wording the fix
+claims. The vehicle stayed at 411 with `ApprovedBy` null and no `VehicleDetails` row.
+
+With the same customer **Active**, same row, same button, immediately afterwards:
+
+```
+POST ApproveVehicleWithRC
+  {"statusCode":1,"message":"Vehicle approved successfully.","approvedCount":1,"failedCount":0}
+```
+
+So the guard is specific to the customer's status rather than a button that has stopped working —
+which is the control that makes the first result meaningful.
+
+### Still to verify
+The second claim — *"Parent customer is Inactive. Vehicle cannot be approved."* — is **untested**. It
+needs a branch customer with a vehicle at 411 whose **parent** is inactive, and no such record
+exists: of the 139 vehicles currently pending approval, none belongs to a customer that is inactive
+or whose parent is. Seeding it means adding a vehicle to a branch and deactivating the parent.
+
+### Worth noting separately
+- The status change posts `UpdateCustomerStatus` returning `"… successfully."`, and **the page
+  renders nothing**. Deactivating a customer gives no visible confirmation, which is how a
+  successful change reads as a failed one.
+- Eight vehicles are currently live at 401 against customers inactive at 104 — seven on
+  `NAYAFP2023400019`, one on `NAYAFP2023400133`. The fix prevents new ones; it does not clean up
+  what the old behaviour already produced. Worth a data question to whoever owns the ticket.
+
+### Two mistakes of mine, recorded so they are not repeated
+- The first run reported "the application said nothing" and looked like a silent block. Approve
+  raises **"Approve vehicle &lt;reg&gt;? Cancel | Yes"** and I never answered it, so no request was
+  sent — the vehicle stayed pending for the wrong reason. `tools/verify-nfp1913.spec.ts` now fails
+  loudly if that dialog does not appear rather than reading the silence as a result.
+- A deactivation that had worked was read as having failed, because `currentStatus()` after
+  `search()` returns the stale grid. That skipped the restore and left the customer deactivated.
+  The status read is now polled, and the restore keys off the live status rather than what the run
+  believes it did.
+
+---
+
 ## FP-A — A vehicle can be approved, and go live, for a deactivated customer
 
 | Field | Value |

@@ -38,6 +38,13 @@ test.describe('Tools — probes @tools', () => {
       console.log(`\n  ${t}: ${cols.map(r => r.c).join(', ')}`);
     }
 
+    show('DL4CNB1474 — the subject of the verification run', await db.query(`
+      SELECT 'RawVehiclesDetail' AS src, VehicleNo, VehicleStatus, CustomerID, ApprovedBy
+      FROM dbo.RawVehiclesDetail WHERE VehicleNo = 'DL4CNB1474'
+      UNION ALL
+      SELECT 'VehicleDetails', VehicleNo, VehicleStatus, CustomerID, ApprovedBy
+      FROM dbo.VehicleDetails WHERE VehicleNo = 'DL4CNB1474'`));
+
     show('DL4CU8468, the registration in the ticket', await db.query(`
       SELECT 'RawVehiclesDetail' AS src, VehicleNo, VehicleStatus, CustomerID
       FROM dbo.RawVehiclesDetail WHERE VehicleNo = 'DL4CU8468'
