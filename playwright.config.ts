@@ -45,6 +45,29 @@ const USER_MANAGEMENT_TESTS = /user-management[\\/].*\.spec\.ts/;
 const CUSTOMER_MANAGEMENT_TESTS = /customer-management[\\/].*\.spec\.ts/;
 const VEHICLE_TESTS = /vehicle[\\/].*\.spec\.ts/;
 
+/**
+ * The suites that carry a browser dimension, and the browsers they run on.
+ *
+ * Kept as data so adding a browser is one line here rather than a copy of every project.
+ * Chrome has no suffix so that the original project names keep working.
+ */
+const MODULE_SUITES: Array<{ name: string; testMatch: RegExp; testIgnore?: RegExp }> = [
+  { name: 'auth', testMatch: AUTH_TESTS },
+  // Excludes the API matrices, which would otherwise be dragged down to this
+  // project's single worker.
+  { name: 'user-management', testMatch: USER_MANAGEMENT_TESTS, testIgnore: API_MATRIX_TESTS },
+  { name: 'customer-management', testMatch: CUSTOMER_MANAGEMENT_TESTS },
+  // tests/vehicle also holds coverage.api.spec.ts, which belongs to the `api`
+  // project and opens no browser. Vehicle specs CHANGE VEHICLE STATE — blocking a
+  // vehicle stops it transacting — which is why this is selectable on its own.
+  { name: 'vehicle', testMatch: VEHICLE_TESTS, testIgnore: /.*\.api\.spec\.ts/ },
+];
+
+const MODULE_BROWSERS: Array<{ suffix: string; device: 'Desktop Chrome' | 'Desktop Firefox' }> = [
+  { suffix: '', device: 'Desktop Chrome' },
+  { suffix: '-firefox', device: 'Desktop Firefox' },
+];
+
 const BROWSER_TEST_IGNORE = [
   /.*\.setup\.ts/,
   /.*\.api\.spec\.ts/,
@@ -97,7 +120,7 @@ export default defineConfig({
     // results at all, so `npm run allure:report` generated an empty report from an empty directory and
     // every run looked like it had produced nothing to report. Measured: the same project writes 5
     // result files with the reporter's defaults and 0 through the old options.
-    ['allure-playwright', { resultsDir: 'allure-results', detail: true }],
+    ['allure-playwright', { resultsDir: process.env.ALLURE_RESULTS_DIR ?? 'allure-results', detail: true }],
     ['./reporters/custom-reporter.ts'],
     ...(process.env.CI ? [['github'] as ['github']] : [['list'] as ['list']]),
   ],
@@ -156,12 +179,6 @@ export default defineConfig({
     // Authentication specs — these drive login themselves, so they must NOT inherit
     // a pre-authenticated storageState or depend on the setup project. Binding them
     // to `setup` would gate the login suite on the very login it exists to verify.
-    {
-      name: 'auth',
-      use: { ...devices['Desktop Chrome'] },
-      testMatch: AUTH_TESTS,
-    },
-
     // Chromium
     {
       name: 'chromium',
@@ -222,43 +239,44 @@ export default defineConfig({
       testMatch: DB_TESTS,
     },
 
-    // User Management — drives login itself and needs the database alongside the
-    // browser, so it inherits neither storageState nor the setup project.
-    // Browser-driven user management. Excludes the API matrices below, which
-    // would otherwise be dragged down to this project's single worker.
-    {
-      name: 'user-management',
-      use: { ...devices['Desktop Chrome'] },
-      testMatch: USER_MANAGEMENT_TESTS,
-      testIgnore: API_MATRIX_TESTS,
-    },
+    // ── The module suites, once per browser ─────────────────────────────────
+    //
+    // These four drive their own login and need the database alongside the browser, so
+    // they inherit neither storageState nor the setup project.
+    //
+    // They are generated rather than written out because each one now exists per browser.
+    // Written by hand that was four literals; across two browsers it would be eight, and
+    // the pairs would drift — the vehicle project's testIgnore for .api.spec.ts is
+    // exactly the kind of detail that gets added to one copy and not the other.
+    //
+    // Naming is deliberate: the Chrome variant keeps the bare name it has always had, so
+    // every command, script and document that says --project=customer-management still
+    // means what it meant. Firefox is the suffixed sibling.
+    //
+    // ── On running them at the same time ────────────────────────────────────
+    // Chrome and Firefox in parallel is two concurrent sessions per account, and this
+    // application enforces a single session — hence #profile-active-session-ok-btn and
+    // the tab-takeover controls the login page carries. Two browsers signed in as the
+    // same FP Admin will evict each other, and the resulting failures look like
+    // application defects rather than a provisioning problem. So simultaneous
+    // cross-browser running needs a second set of accounts: set FP_ADMIN_USER, DSA_USER
+    // and TSM_USER for one and FIREFOX_FP_ADMIN_USER and friends for the other. Until
+    // those exist, run the two browsers one after the other, which costs time and
+    // nothing else.
+    ...MODULE_SUITES.flatMap(suite =>
+      MODULE_BROWSERS.map(browser => ({
+        name: `${suite.name}${browser.suffix}`,
+        use: { ...devices[browser.device] },
+        testMatch: suite.testMatch,
+        ...(suite.testIgnore ? { testIgnore: suite.testIgnore } : {}),
+      }))
+    ),
 
     // Office and RO onboarding matrices. No browser, no session, safe to run
     // many at once:  WORKERS=8 npx playwright test --project=api-matrix
     {
       name: 'api-matrix',
       testMatch: API_MATRIX_TESTS,
-    },
-
-    // Customer Management — same shape as user-management: drives its own
-    // login, needs the database, and inherits neither storageState nor setup.
-    {
-      name: 'customer-management',
-      use: { ...devices['Desktop Chrome'] },
-      testMatch: CUSTOMER_MANAGEMENT_TESTS,
-    },
-
-    // Vehicle Management. Separate from customer-management because these
-    // tests CHANGE VEHICLE STATE — blocking a vehicle stops it transacting —
-    // and a suite that does that should be selectable on its own rather than
-    // swept up by a broad run of everything else.
-    {
-      name: 'vehicle',
-      use: { ...devices['Desktop Chrome'] },
-      testMatch: VEHICLE_TESTS,
-      // tests/vehicle also holds coverage.api.spec.ts, which belongs to the
-      // `api` project and opens no browser.
-      testIgnore: /.*\.api\.spec\.ts/,
     },
 
     // Data-building tools. These CREATE REAL RECORDS — a customer onboarded to

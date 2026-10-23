@@ -3,6 +3,7 @@ import { LoginPage } from '../src/pages/login.page';
 import { DashboardPage } from '../src/pages/dashboard.page';
 import { ChangePasswordPage } from '../src/pages/change-password.page';
 import { DbHelper } from '../src/helpers/db.helper';
+import { createOtpReader } from '../src/helpers/sms-otp.helper';
 
 /**
  * Puts the six new officers onto a known password.
@@ -95,7 +96,11 @@ test.describe('Tools — data building @tools', () => {
       expect(temp, `No activation SMS with a temporary password for ${officer.mobile}`).toBeTruthy();
 
       await loginPage.navigate();
-      await loginPage.login(officer.mobile, temp!);
+      // Read from dbo.UserSMSLog rather than assumed to be 123456: only whitelisted
+      // numbers get the fixed code, and an account created with a generated mobile is
+      // not one. Primed before the submit so the baseline predates the send.
+      const firstOtp = await createOtpReader(officer.mobile, 'Login');
+      await loginPage.login(officer.mobile, temp!, undefined, firstOtp);
 
       // Already changed on an earlier run? Then there is nothing to do, and
       // saying so beats failing on a screen that never appeared.
@@ -111,7 +116,8 @@ test.describe('Tools — data building @tools', () => {
       // The application's word is not the proof. Sign in again, cold.
       await page.context().clearCookies();
       await loginPage.navigate();
-      await loginPage.login(officer.mobile, TARGET_PASSWORD);
+      const secondOtp = await createOtpReader(officer.mobile, 'Login');
+      await loginPage.login(officer.mobile, TARGET_PASSWORD, undefined, secondOtp);
       await dashboardPage.assertDashboardLoaded();
 
       console.log(`${officer.label}: ${officer.mobile} / ${TARGET_PASSWORD} — verified at ${page.url()}`);

@@ -24,13 +24,52 @@ export interface Account {
   role: string;
 }
 
-const DEFAULT_USER = 'loadtest_006';
+/**
+ * One account per worker, drawn from a pool.
+ *
+ * The whole suite ran single-worker because FleetPlus allows one live session per user:
+ * two workers signed in as the same FP Admin evict each other, and the resulting failures
+ * read as application defects. Measured on a full round, that cost 22 of every 27 seconds
+ * — about 80% of wall-clock spent re-establishing sessions rather than testing.
+ *
+ * So each worker takes its own account. Pass a comma-separated pool and worker N uses
+ * entry N % size:
+ *
+ *   FP_ADMIN_USERS=loadtest06,auto_fp_1,auto_fp_2,auto_fp_3 WORKERS=4
+ *
+ * accounts.ts is evaluated once per worker process and TEST_WORKER_INDEX is set per
+ * worker, so the choice is made at import time and is stable for that worker's whole run.
+ *
+ * Precedence is deliberate: an explicit single-account override still wins, so
+ * FP_ADMIN_USER pins every worker to one account when a run needs that — reproducing a
+ * failure, for instance. A pool smaller than the worker count wraps round, which
+ * reintroduces eviction; that is the caller's business, and the pool size is logged so it
+ * is visible rather than mysterious.
+ */
+function workerSlot(): number {
+  return Number(process.env.TEST_WORKER_INDEX ?? 0);
+}
+
+function fromPool(pool: string | undefined, fallback: string): string {
+  const entries = (pool ?? '').split(',').map(entry => entry.trim()).filter(Boolean);
+  if (!entries.length) return fallback;
+  return entries[workerSlot() % entries.length];
+}
+
+/** Paired with fromPool so a pooled account can carry its own password. */
+function passwordFromPool(pool: string | undefined, fallback: string): string {
+  const entries = (pool ?? '').split(',').map(entry => entry.trim()).filter(Boolean);
+  if (!entries.length) return fallback;
+  return entries[workerSlot() % entries.length];
+}
+
+const DEFAULT_USER = 'loadtest06';
 const DEFAULT_PASS = 'Nayara@1';
 
 /** Creates users through Add User. Must be entitled to the User module. */
 export const FP_ADMIN: Account = {
-  username: process.env.FP_ADMIN_USER ?? DEFAULT_USER,
-  password: process.env.FP_ADMIN_PASS ?? DEFAULT_PASS,
+  username: process.env.FP_ADMIN_USER ?? fromPool(process.env.FP_ADMIN_USERS, DEFAULT_USER),
+  password: process.env.FP_ADMIN_PASS ?? passwordFromPool(process.env.FP_ADMIN_PASSES, DEFAULT_PASS),
   role: 'FP_ADMIN',
 };
 
@@ -42,8 +81,14 @@ export const FP_ADMIN: Account = {
  * rather than taken from the credentials sheet.
  */
 export const ONBOARDING_MAKER: Account = {
-  username: process.env.ONBOARDING_MAKER_USER ?? process.env.CUSTOMER_ADMIN_USER ?? DEFAULT_USER,
-  password: process.env.ONBOARDING_MAKER_PASS ?? process.env.CUSTOMER_ADMIN_PASS ?? DEFAULT_PASS,
+  username:
+    process.env.ONBOARDING_MAKER_USER ??
+    process.env.CUSTOMER_ADMIN_USER ??
+    fromPool(process.env.FP_ADMIN_USERS, DEFAULT_USER),
+  password:
+    process.env.ONBOARDING_MAKER_PASS ??
+    process.env.CUSTOMER_ADMIN_PASS ??
+    passwordFromPool(process.env.FP_ADMIN_PASSES, DEFAULT_PASS),
   role: 'Customer onboarding',
 };
 
@@ -83,8 +128,10 @@ export const CUSTOMER_ADMIN: Account = ONBOARDING_MAKER;
  * beyond it, while an FP Admin is never capped.
  */
 export const PARENT_ADMIN: Account & { roleCode: string; ownCustomerId: string } = {
-  username: process.env.PARENT_ADMIN_USER ?? '9200000000',
-  password: process.env.PARENT_ADMIN_PASS ?? process.env.TEST_PASSWORD ?? '',
+  username: process.env.PARENT_ADMIN_USER ?? fromPool(process.env.PARENT_ADMIN_USERS, '9200000000'),
+  password:
+    process.env.PARENT_ADMIN_PASS ??
+    passwordFromPool(process.env.PARENT_ADMIN_PASSES, process.env.TEST_PASSWORD ?? ''),
   role: 'Parent Admin',
   roleCode: process.env.PARENT_ADMIN_ROLE ?? 'CUSTOMER_ADMIN',
   /** The customer this admin owns. Branches are added under it. */
@@ -103,8 +150,14 @@ export const PARENT_ADMIN: Account & { roleCode: string; ownCustomerId: string }
  * branch from the session rather than assume one.
  */
 export const BRANCH_ADMIN: Account & { roleCode: string; parentCustomerId: string } = {
-  username: process.env.BRANCH_ADMIN_USER ?? PARENT_ADMIN.username,
-  password: process.env.BRANCH_ADMIN_PASS ?? PARENT_ADMIN.password,
+  // Defaults to the parent's own mobile, which is the expensive case: one mobile holding
+  // both roles means the worker's session fixture must close one to open the other, and
+  // every alternation costs a fresh login. Point BRANCH_ADMIN_USERS at branch admins on
+  // their own numbers and both sessions can be held at once.
+  username: process.env.BRANCH_ADMIN_USER ?? fromPool(process.env.BRANCH_ADMIN_USERS, PARENT_ADMIN.username),
+  password:
+    process.env.BRANCH_ADMIN_PASS ??
+    passwordFromPool(process.env.BRANCH_ADMIN_PASSES, PARENT_ADMIN.password),
   role: 'Branch Admin',
   roleCode: process.env.BRANCH_ADMIN_ROLE ?? 'BRANCH_ADMIN',
   /** The parent these branches hang off. */
@@ -137,14 +190,14 @@ export const BRANCH_ADMIN: Account & { roleCode: string; parentCustomerId: strin
  * division.
  */
 export const DSA: Account = {
-  username: process.env.DSA_USER ?? '9611200199',
-  password: process.env.DSA_PASS ?? 'Thinkpad@1',
+  username: process.env.DSA_USER ?? fromPool(process.env.DSA_USERS, '9611200199'),
+  password: process.env.DSA_PASS ?? passwordFromPool(process.env.DSA_PASSES, 'Thinkpad@1'),
   role: 'DSA',
 };
 
 export const TSM: Account = {
-  username: process.env.TSM_USER ?? '9612200200',
-  password: process.env.TSM_PASS ?? 'Thinkpad@1',
+  username: process.env.TSM_USER ?? fromPool(process.env.TSM_USERS, '9612200200'),
+  password: process.env.TSM_PASS ?? passwordFromPool(process.env.TSM_PASSES, 'Thinkpad@1'),
   role: 'TSM',
 };
 

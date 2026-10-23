@@ -6,6 +6,7 @@ test-results/
 playwright-report/
 allure-results/
 allure-report/
+allure-report-*/
 blob-report/
 
 # Auth state (contains sensitive tokens)

@@ -1,8 +1,10 @@
+import { TermsPage } from './terms.page';
 import { Page, expect } from '@playwright/test';
 import { BasePage } from './base.page';
 import { OtpPage } from './otp.page';
 import { PreLoginOtpModal } from './components/pre-login-otp-modal.component';
 import { RoleSelector, UserTypeSelectionPage } from './user-type-selection.page';
+import { OtpSource, resolveOtp } from '../helpers/sms-otp.helper';
 
 /**
  * FleetPlus login — /Home/Login.
@@ -176,7 +178,12 @@ export class LoginPage extends BasePage {
    * usable one. Deliberately does not assert the destination — callers check for a
    * dashboard, a forced password change, or an error as the test requires.
    */
-  async login(username: string, password: string, role?: RoleSelector): Promise<void> {
+  async login(
+    username: string,
+    password: string,
+    role?: RoleSelector,
+    otp?: OtpSource
+  ): Promise<void> {
     await this.signIn(username, password);
     await this.waitForPostLoginLanding();
 
@@ -188,7 +195,29 @@ export class LoginPage extends BasePage {
     }
 
     await this.selectUserTypeIfPresent(role);
-    await this.completeOtpIfPresent();
+    await this.completeOtpIfPresent(otp);
+
+    // 1.4.0 puts a Terms & Conditions agreement between the OTP and the dashboard for
+    // some roles (RO). It has to be accepted before the sidebar renders.
+    await new TermsPage(this.page).acceptAllIfPresent();
+
+    // RO logins without a PIN are then offered "Set RO PIN" (/Home/LoginRoPinPrompt). A
+    // login is not a PIN test, so take Skip; tests of the prompt itself drive it directly
+    // and pass skipRoPinPrompt = false.
+    if (this.skipRoPinPrompt) await this.skipRoPinPromptIfPresent();
+  }
+
+  /** Set false by tests that exercise the Set RO PIN prompt itself. */
+  skipRoPinPrompt = true;
+
+  async skipRoPinPromptIfPresent(): Promise<boolean> {
+    const skip = this.page.getByRole('link', { name: /^skip$/i });
+    await this.page.locator('#sidebarMenu').or(skip).first()
+      .waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined);
+    if (!/LoginRoPinPrompt/i.test(this.page.url()) || !(await skip.isVisible().catch(() => false))) return false;
+    await skip.click();
+    await this.page.locator('#sidebarMenu').waitFor({ state: 'visible', timeout: 20_000 }).catch(() => undefined);
+    return true;
   }
 
   /**
@@ -260,11 +289,14 @@ export class LoginPage extends BasePage {
   }
 
   /** Completes 2FA when the app presents it. */
-  async completeOtpIfPresent(code?: string): Promise<void> {
+  async completeOtpIfPresent(code?: OtpSource): Promise<void> {
     const otpPage = new OtpPage(this.page);
     if (!(await otpPage.isPresent(10_000))) return;
 
-    await otpPage.verify(code);
+    // Resolved only once the OTP step is actually on screen: a reader backed by the SMS
+    // log waits for a message, and waiting for one the app never sends would stall every
+    // login that does not ask for an OTP at all.
+    await otpPage.verify(code === undefined ? undefined : await resolveOtp(code));
     await this.dismissSessionDialogs();
   }
 

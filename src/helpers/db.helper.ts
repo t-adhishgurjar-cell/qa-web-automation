@@ -253,7 +253,11 @@ export class DbHelper {
    */
   private static async withRetry<T>(statement: string, run: () => Promise<T>): Promise<T> {
     const TRANSPORT_FAILURE = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|socket hang up|Connection lost|Failed to connect|Connection is closed|not connected/i;
-    const attempts = 3;
+    // QA has been seen unreachable for ~5 minutes (port open, every connection reset), which
+    // three quick attempts cannot outlast. Back off to 30s between attempts so a short outage
+    // is waited out instead of surfacing as dozens of unrelated failures. DB_RETRY_ATTEMPTS
+    // overrides it.
+    const attempts = Number(process.env.DB_RETRY_ATTEMPTS ?? 8);
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -269,7 +273,7 @@ export class DbHelper {
             `Reconnecting and retrying. Query: ${statement.slice(0, 60).replace(/\s+/g, ' ')}…`
         );
         await this.close().catch(() => undefined);
-        await new Promise(resolve => setTimeout(resolve, attempt * 2_000));
+        await new Promise(resolve => setTimeout(resolve, Math.min(attempt * 5_000, 30_000)));
       }
     }
 
