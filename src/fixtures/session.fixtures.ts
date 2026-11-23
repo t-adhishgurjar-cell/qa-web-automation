@@ -4,6 +4,19 @@ import { LoginPage } from '../pages/login.page';
 import { DashboardPage } from '../pages/dashboard.page';
 import { RoleSelector } from '../pages/user-type-selection.page';
 import { Account, FP_ADMIN } from '../config/accounts';
+import * as fs from 'fs';
+import * as path from 'path';
+import { attachClientPayloadMonitor, ClientPayloadNetworkMonitor } from '../helpers/client-payload-network.helper';
+
+/**
+ * CLIENT_PAYLOAD_AUDIT=true turns every functional spec into an encryption check: each
+ * session page gets a network monitor, and after each test any POST that was not a
+ * single clientPayload (or any 400 "Encrypted client payload is required" / 415) is
+ * appended to test-results/client-payload-violations.jsonl. Test outcomes are untouched.
+ */
+const AUDIT = process.env.CLIENT_PAYLOAD_AUDIT === 'true';
+const auditMonitors: ClientPayloadNetworkMonitor[] = [];
+const AUDIT_FILE = path.join(process.cwd(), 'test-results', 'client-payload-violations.jsonl');
 
 /**
  * One login per worker instead of one per test.
@@ -87,6 +100,7 @@ async function signIn(
 ): Promise<HeldSession> {
   const context = await browser.newContext({ baseURL, viewport });
   const page = await context.newPage();
+  if (AUDIT) auditMonitors.push(attachClientPayloadMonitor(page));
 
   try {
     const loginPage = new LoginPage(page);
@@ -107,9 +121,38 @@ async function signIn(
  * every fixture as never, so the empty-key form is the one that leaves the
  * inherited fixtures alone.
  */
-type NoAddedTestFixtures = Record<never, never>;
+type NoAddedTestFixtures = { clientPayloadAudit: void };
 
 export const test = base.extend<NoAddedTestFixtures, SessionOptions & SessionFixtures>({
+  clientPayloadAudit: [
+    async ({}, use, testInfo) => {
+      if (!AUDIT) {
+        await use();
+        return;
+      }
+      for (const m of auditMonitors) m.reset();
+      await use();
+      let posts = 0;
+      let encrypted = 0;
+      const lines: string[] = [];
+      for (const m of auditMonitors) {
+        const a = m.snapshot();
+        posts += a.postCount;
+        encrypted += a.encryptedPostCount;
+        for (const v of a.violations) {
+          lines.push(JSON.stringify({ test: testInfo.titlePath.slice(1).join(' > '), file: testInfo.file.replace(process.cwd() + '/', ''), kind: v.kind, method: v.method, url: v.url, detail: v.detail, fields: v.fieldNames }));
+        }
+      }
+      fs.mkdirSync(path.dirname(AUDIT_FILE), { recursive: true });
+      if (lines.length) {
+        fs.appendFileSync(AUDIT_FILE, lines.join('\n') + '\n');
+        testInfo.annotations.push({ type: 'client-payload-violation', description: `${lines.length} violation(s)` });
+      }
+      fs.appendFileSync(AUDIT_FILE.replace('violations', 'coverage'), JSON.stringify({ test: testInfo.titlePath.slice(1).join(' > '), file: testInfo.file.replace(process.cwd() + '/', ''), status: testInfo.status, posts, encrypted, violations: lines.length }) + '\n');
+    },
+    { auto: true },
+  ],
+
   sessionAccount: [FP_ADMIN, { scope: 'worker', option: true }],
 
   sessionFor: [
